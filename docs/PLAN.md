@@ -393,6 +393,7 @@ _Append-only. Date + one line per decision, so both sides know why things are th
 - 2026-07-01 — Standalone pylint considered and declined as redundant; instead enabled Ruff's `PL` (pylint-derived) ruleset to capture its high-value checks without a second linter/config/CI cost.
 - 2026-07-01 — CI mechanics settled: reduced matrix on PR / full matrix on main + nightly (+ nightly real-network smoke); release-please for versioning/changelog/release; full supply-chain hardening (SHA-pinned actions, harden-runner egress control, OpenSSF Scorecard); squash-merge with Conventional-Commit PR titles; coverage gate --cov-fail-under=90.
 - 2026-07-01 — Delivery model = Continuous Delivery (CI/CD). GitHub App token so full CI + security suite run on the release PR (last-minute/zero-day catch). Publish gated behind protected `pypi` Environment with required reviewers (manual approval) + a final pre-publish pip-audit/dependency re-scan + nightly CVE scan on main. Publish via Trusted Publishing on approval. Accepted caveat: tag/Release exists at release-PR merge even if publish is later rejected (fix forward).
+- 2026-07-01 — Moved to Spec Kit. Installed uv + specify-cli in WSL; ran `specify init --here --integration claude --script sh`. Created branch `chore/spec-kit-init`; committed design plan + spec-kit scaffolding. Updated git remote devkit→opskit (GitHub repo renamed by user). Ratified constitution v1.0.0 from Arts. I–X at `.specify/memory/constitution.md`. Gitignored `.claude/*.local.json`.
 
 ## Backlog
 
@@ -406,12 +407,13 @@ _Not now, but don't lose it._
 
 ## Handoff
 
-**Last updated by:** plugin (VS Code) — design discussion captured
+**Last updated by:** plugin (VS Code) — Spec Kit initialized + constitution ratified
 **Date:** 2026-07-01
-**State:** Design discussion substantially complete — identity, engineering standards,
-constitution articles I–X, API-first design, UX/DX principles, testing strategy,
-cross-platform plan, config precedence, `--json` contract, and v1 dependencies all locked
-(see sections + decision log). Repo renamed to `opskit`. No code or Spec Kit scaffolding yet.
-Open: none — design discussion complete; ready for the Spec Kit phase when you are.
-**Next step:** Initialize Spec Kit, then draft `constitution.md` and the v1 DNS `spec.md`
-from the decisions above. Do not write implementation code until specs are approved.
+**State:** Design locked (identity, engineering standards, API-first design, UX/DX, testing,
+cross-platform, config precedence, `--json` contract, deps, CI/CD). **Spec Kit initialized**
+on branch `chore/spec-kit-init` (uv + specify installed in WSL). **Constitution v1.0.0
+ratified** at `.specify/memory/constitution.md` from Arts. I–X. Remote points at
+`Prabhakar-cg/opskit`.
+**Next step:** Run `/speckit-specify` for the v1 DNS feature (scope: forward lookup + record
+types, reverse PTR, custom resolver, query controls) → `/speckit-plan` → `/speckit-tasks`.
+Do not write implementation code until specs are approved.
