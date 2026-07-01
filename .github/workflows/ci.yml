@@ -1,0 +1,109 @@
+# CI — lint, type-check, test (reduced matrix on PR, full matrix on main), audit, SonarCloud.
+# NOTE: third-party actions are tag-pinned for readability; Dependabot (github-actions) is
+# configured to keep them current and should be used to pin to commit SHAs (constitution Art. III).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-type:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+      - name: mypy
+        run: uv run mypy
+      - name: pyright
+        run: uv run pyright
+
+  matrix-setup:
+    name: Compute test matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - id: set
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo 'matrix={"os":["ubuntu-latest"],"python":["3.9","3.13"]}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"os":["ubuntu-latest","macos-latest","windows-latest"],"python":["3.9","3.10","3.11","3.12","3.13"]}' >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    name: Test (${{ matrix.os }}, py${{ matrix.python }})
+    needs: [lint-type, matrix-setup]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix-setup.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - run: uv sync --extra dev
+      - name: pytest
+        run: uv run pytest
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: pip-audit
+        run: uv run pip-audit
+
+  sonar:
+    name: SonarCloud
+    # Runs on main pushes; skips gracefully until SONAR_TOKEN is configured.
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --extra dev
+      - name: Coverage report
+        run: uv run pytest --cov-report=xml
+      - name: SonarCloud scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v4
