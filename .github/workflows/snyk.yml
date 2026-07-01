@@ -1,0 +1,67 @@
+# Snyk — Open Source (dependency) + Code (SAST) scanning; results uploaded to the GitHub
+# Security tab as SARIF. Non-blocking for now (continue-on-error) so existing findings don't
+# wall off development; tighten to blocking once triaged. Skips cleanly until SNYK_TOKEN is set.
+name: Snyk
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snyk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Snyk (OSS + Code)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF to code scanning
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Notice when unconfigured
+        if: ${{ env.SNYK_TOKEN == '' }}
+        run: echo "SNYK_TOKEN is not set — skipping Snyk. Add the repo secret to enable."
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        if: ${{ env.SNYK_TOKEN != '' }}
+      - name: Install Snyk CLI
+        if: ${{ env.SNYK_TOKEN != '' }}
+        uses: snyk/actions/setup@8e119fbb6c251787721d34ba683ed48eba792766 # master
+      - name: Snyk Open Source (dependencies)
+        if: ${{ env.SNYK_TOKEN != '' }}
+        continue-on-error: true   # non-blocking for now
+        run: |
+          # Snyk's pip plugin needs a real pip + installed deps. A uv venv has no pip, so use a
+          # stdlib venv, install the runtime deps, and scan the frozen (marker-free) set.
+          python3 -m venv .venv
+          . .venv/bin/activate
+          uv export --no-hashes --no-emit-project --format requirements-txt -o req-raw.txt
+          pip install -r req-raw.txt
+          pip freeze --exclude-editable > requirements.txt
+          snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-oss.sarif
+      - name: Snyk Code (SAST)
+        if: ${{ env.SNYK_TOKEN != '' }}
+        continue-on-error: true   # non-blocking for now
+        run: snyk code test --severity-threshold=high --sarif-file-output=snyk-code.sarif
+      - name: Upload Open Source SARIF
+        if: ${{ env.SNYK_TOKEN != '' && hashFiles('snyk-oss.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
+        with:
+          sarif_file: snyk-oss.sarif
+          category: snyk-oss
+      - name: Upload Snyk Code SARIF
+        if: ${{ env.SNYK_TOKEN != '' && hashFiles('snyk-code.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code

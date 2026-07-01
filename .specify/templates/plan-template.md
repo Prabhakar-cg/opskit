@@ -40,7 +40,22 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+Confirm this feature upholds every applicable principle in `.specify/memory/constitution.md`.
+Record PASS/violation for each; a violation requires an entry in Complexity Tracking with a
+documented justification.
+
+**Core principles (I–X):** _map each to how the feature complies (or N/A)._
+
+**OpenSSF Scorecard & Best-Practices Baseline** (enforced continuously; solo-limited *(team)*/
+*(maintainer)* items are aspirational, not gating):
+- [ ] Any new/edited GitHub Action is **SHA-pinned** (with `# vX.Y.Z` comment).
+- [ ] Workflow tokens are **least-privilege** (read-only default; per-job write scopes only).
+- [ ] No **dangerous-workflow** patterns (untrusted checkout / unsanitized `github.event.*`).
+- [ ] New dependencies pass `pip-audit` + Snyk; none are EOL/unmaintained; deps stay pinned via lock.
+- [ ] New commands ship **tests** + **docs** (Arts. II, VII) and preserve the output/exit-code contract.
+- [ ] No secrets committed; inputs validated; read-only, zero-telemetry scope preserved (Arts. VIII, X).
+- [ ] Release/packaging path keeps **Trusted Publishing + SBOM + attestations** intact.
+- [ ] `SECURITY.md`, branch protection, and Dependabot remain in force.
 
 ## Project Structure
 
