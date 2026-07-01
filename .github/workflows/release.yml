@@ -47,7 +47,7 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv sync --extra dev
       - name: Final security re-scan (zero-day gate)
         run: uv run pip-audit

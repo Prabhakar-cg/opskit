@@ -7,9 +7,15 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "chore"
+    groups:
+      python-dependencies:
+        patterns: ["*"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     commit-message:
       prefix: "chore"
+    groups:
+      github-actions:
+        patterns: ["*"]
