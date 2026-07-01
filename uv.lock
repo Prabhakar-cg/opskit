@@ -1301,7 +1301,7 @@ requires-dist = [
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.380" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
-    { name = "rich", specifier = ">=13,<15" },
+    { name = "rich", specifier = ">=13,<16" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2" },
     { name = "typer", specifier = ">=0.12,<1" },
