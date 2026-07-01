@@ -41,11 +41,14 @@ jobs:
         if: ${{ env.SNYK_TOKEN != '' }}
         continue-on-error: true   # non-blocking for now
         run: |
-          # Install runtime deps into a venv and freeze exactly what's installed so Snyk's
-          # resolver has a concrete, marker-free graph (avoids SNYK-OS-PYTHON-0013).
-          uv sync --no-dev
-          uv pip freeze --python .venv/bin/python | grep -vi opskit > requirements.txt
-          snyk test --file=requirements.txt --package-manager=pip --command=.venv/bin/python --severity-threshold=high --sarif-file-output=snyk-oss.sarif
+          # Snyk's pip plugin needs a real pip + installed deps. A uv venv has no pip, so use a
+          # stdlib venv, install the runtime deps, and scan the frozen (marker-free) set.
+          python3 -m venv .venv
+          . .venv/bin/activate
+          uv export --no-hashes --no-emit-project --format requirements-txt -o req-raw.txt
+          pip install -r req-raw.txt
+          pip freeze --exclude-editable > requirements.txt
+          snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-oss.sarif
       - name: Snyk Code (SAST)
         if: ${{ env.SNYK_TOKEN != '' }}
         continue-on-error: true   # non-blocking for now
