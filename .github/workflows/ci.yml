@@ -89,8 +89,7 @@ jobs:
 
   sonar:
     name: SonarCloud
-    # Runs on main pushes; skips gracefully until SONAR_TOKEN is configured.
-    if: ${{ github.event_name == 'push' }}
+    # Runs on PRs (for decoration) and on main; the scan step skips until SONAR_TOKEN is set.
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
