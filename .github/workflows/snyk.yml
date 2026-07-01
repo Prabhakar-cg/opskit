@@ -1,0 +1,62 @@
+# Snyk — Open Source (dependency) + Code (SAST) scanning; results uploaded to the GitHub
+# Security tab as SARIF. Non-blocking for now (continue-on-error) so existing findings don't
+# wall off development; tighten to blocking once triaged. Skips cleanly until SNYK_TOKEN is set.
+name: Snyk
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snyk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Snyk (OSS + Code)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF to code scanning
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v7
+      - name: Notice when unconfigured
+        if: ${{ env.SNYK_TOKEN == '' }}
+        run: echo "SNYK_TOKEN is not set — skipping Snyk. Add the repo secret to enable."
+      - uses: astral-sh/setup-uv@v7
+        if: ${{ env.SNYK_TOKEN != '' }}
+      - name: Export locked dependencies for Snyk Open Source
+        if: ${{ env.SNYK_TOKEN != '' }}
+        run: uv export --format requirements-txt --no-emit-project -o requirements.txt
+      - name: Install Snyk CLI
+        if: ${{ env.SNYK_TOKEN != '' }}
+        uses: snyk/actions/setup@master
+      - name: Snyk Open Source (dependencies)
+        if: ${{ env.SNYK_TOKEN != '' }}
+        continue-on-error: true   # non-blocking for now
+        run: snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-oss.sarif
+      - name: Snyk Code (SAST)
+        if: ${{ env.SNYK_TOKEN != '' }}
+        continue-on-error: true   # non-blocking for now
+        run: snyk code test --severity-threshold=high --sarif-file-output=snyk-code.sarif
+      - name: Upload Open Source SARIF
+        if: ${{ env.SNYK_TOKEN != '' && hashFiles('snyk-oss.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk-oss.sarif
+          category: snyk-oss
+      - name: Upload Snyk Code SARIF
+        if: ${{ env.SNYK_TOKEN != '' && hashFiles('snyk-code.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code
