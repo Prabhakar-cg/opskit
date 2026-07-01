@@ -34,16 +34,21 @@ jobs:
         run: echo "SNYK_TOKEN is not set — skipping Snyk. Add the repo secret to enable."
       - uses: astral-sh/setup-uv@v7
         if: ${{ env.SNYK_TOKEN != '' }}
-      - name: Export locked dependencies for Snyk Open Source
-        if: ${{ env.SNYK_TOKEN != '' }}
-        run: uv export --format requirements-txt --no-emit-project -o requirements.txt
       - name: Install Snyk CLI
         if: ${{ env.SNYK_TOKEN != '' }}
         uses: snyk/actions/setup@master
       - name: Snyk Open Source (dependencies)
         if: ${{ env.SNYK_TOKEN != '' }}
         continue-on-error: true   # non-blocking for now
-        run: snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-oss.sarif
+        run: |
+          # Snyk's pip plugin needs a real pip + installed deps. A uv venv has no pip, so use a
+          # stdlib venv, install the runtime deps, and scan the frozen (marker-free) set.
+          python3 -m venv .venv
+          . .venv/bin/activate
+          uv export --no-hashes --no-emit-project --format requirements-txt -o req-raw.txt
+          pip install -r req-raw.txt
+          pip freeze --exclude-editable > requirements.txt
+          snyk test --file=requirements.txt --package-manager=pip --severity-threshold=high --sarif-file-output=snyk-oss.sarif
       - name: Snyk Code (SAST)
         if: ${{ env.SNYK_TOKEN != '' }}
         continue-on-error: true   # non-blocking for now
