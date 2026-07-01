@@ -1,30 +1,25 @@
 <!--
 SYNC IMPACT REPORT
-Version change: (initial) → 1.0.0
-Ratification: initial adoption 2026-07-01
-Principles (all new):
-  I.    Conventional Commits & Automated Changelog
-  II.   Documentation Completeness
-  III.  Zero Security Compromise
-  IV.   Dependency Freshness
-  V.    Strict Semantic Versioning
-  VI.   Pure-Python Cross-Platform Parity
-  VII.  CLI/API Parity via a Typed Core
-  VIII. Privacy — Zero Telemetry
-  IX.   Output & Interoperability Contract
-  X.    Diagnostic-Only Scope (No Misuse)
-Added sections:
+Version change: 1.0.0 → 1.1.0
+Amended: 2026-07-02 (ratified 2026-07-01)
+Change: MINOR — added the "OpenSSF Scorecard & Best-Practices Baseline" section, codifying
+supply-chain integrity and open-source best-practice requirements distilled from the OpenSSF
+Scorecard checks and the OpenSSF Best Practices (CII) questionnaire. Solo-limited items are
+marked aspirational so they are not treated as violations. No principles removed or redefined.
+Principles (unchanged): I–X
+Sections:
   - Core Principles (I–X)
   - Security & Supply-Chain Requirements
+  - OpenSSF Scorecard & Best-Practices Baseline   ← added in 1.1.0
   - Development Workflow & Quality Gates
   - Governance
 Template consistency:
-  ✅ .specify/templates/plan-template.md   (Constitution Check references are generic; compatible)
+  ✅ .specify/templates/plan-template.md   (Constitution Check updated with the OpenSSF gate)
   ✅ .specify/templates/spec-template.md   (compatible)
   ✅ .specify/templates/tasks-template.md  (compatible)
 Runtime guidance:
-  ✅ docs/PLAN.md is the design source; principles derived from its Arts. I–X
-Deferred TODOs: none
+  ✅ docs/PLAN.md — CI/CD + security decisions align with this baseline
+Deferred TODOs: SCORECARD_TOKEN (Branch-Protection full score); bestpractices.dev questionnaire (id 13462)
 -->
 
 # opskit Constitution
@@ -122,6 +117,48 @@ are rejected. **Rationale:** opskit is a helper for engineers — explicitly not
 - A final `pip-audit` / dependency re-scan MUST pass immediately before publish; a nightly
   scheduled security scan MUST run on `main` to catch newly-disclosed CVEs between releases.
 
+## OpenSSF Scorecard & Best-Practices Baseline
+
+These are maintained **continuously** (not just at setup) and verified by the OpenSSF Scorecard
+workflow and the Constitution Check. Items marked *(team)* / *(maintainer)* are aspirational while
+the project is solo — adopt them when circumstances allow; do **not** treat them as violations in
+the meantime.
+
+**Supply-chain integrity (Scorecard checks):**
+- **Pinned-Dependencies:** every GitHub Action is pinned to a full commit SHA, with a `# vX.Y.Z`
+  comment so Dependabot can still update it. Any new or edited workflow MUST follow this.
+- **Token-Permissions:** `GITHUB_TOKEN` defaults to read-only; each job declares only the write
+  scopes it needs. Never `permissions: write-all`.
+- **Dangerous-Workflow:** never combine `pull_request_target`/`workflow_run` with a checkout of
+  untrusted PR code; never interpolate untrusted `github.event.*` context directly into shell.
+- **Dependency-Update-Tool:** Dependabot stays enabled (grouped) for pip + github-actions.
+- **SAST:** CodeQL + Snyk Code + SonarCloud run on PRs.
+- **Vulnerabilities:** `pip-audit` + Snyk gate; no known-vulnerable or EOL dependency reaches `main`.
+- **Security-Policy:** `SECURITY.md` is maintained with a private reporting channel.
+- **Branch-Protection:** `main` is PR-only with required status checks, no force-push/deletion,
+  linear history, and required conversation resolution.
+- **Signed-Releases:** releases publish via Trusted Publishing (OIDC) with a CycloneDX SBOM and
+  PEP 740 attestations (provenance).
+- **Binary-Artifacts:** no binaries are committed; build artifacts are generated, never checked in.
+- **Fuzzing:** parsers/decoders SHOULD be fuzzed — Hypothesis property tests now; ClusterFuzzLite/
+  OSS-Fuzz when the attack surface warrants it.
+- **Code-Review** *(team)*: require ≥1 human approving review on PRs once a second maintainer exists.
+
+**Open-source best practices (OpenSSF Best Practices / CII):**
+- **Discoverable:** README states what opskit does, how to install, and how to contribute; OSI
+  license (MIT); the public API is documented.
+- **Reporting:** public issue tracker for bugs; private channel for vulnerabilities (`SECURITY.md`).
+- **Quality:** automated tests run in CI on every change; new functionality ships with tests;
+  coding style (Ruff) and static analysis are enforced; SemVer with a generated changelog.
+- **Secure development:** no secrets in the repo (secret scanning + push protection); inputs are
+  validated; only well-maintained crypto/networking libraries are used.
+- **Maintainer hygiene** *(maintainer)*: enable 2FA on the account; keep the OpenSSF Best Practices
+  questionnaire (project 13462) current.
+
+**Gate:** `/speckit-specify` and `/speckit-plan` MUST confirm a feature upholds every
+non-*(team)*/*(maintainer)* item above. Any new workflow, dependency, or release path that breaks
+one is rejected or requires an explicit, documented justification.
+
 ## Development Workflow & Quality Gates
 
 - **Structure & tooling:** `src/` layout; `uv` for env/build; Ruff for format + lint (incl. `PL`);
@@ -152,4 +189,4 @@ are rejected. **Rationale:** opskit is a helper for engineers — explicitly not
 - **Design source of record:** `docs/PLAN.md` captures the rationale and full decision log behind
   these principles.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-07-01
+**Version**: 1.1.0 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-07-02
