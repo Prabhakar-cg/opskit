@@ -106,4 +106,4 @@ jobs:
         run: uv run pytest --cov-report=xml
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
-        uses: SonarSource/sonarqube-scan-action@v4
+        uses: SonarSource/sonarqube-scan-action@v6
