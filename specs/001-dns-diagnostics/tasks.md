@@ -58,9 +58,9 @@ in parallel (different files, no incomplete deps). Story labels `[US1]`–`[US9]
 
 **Goal:** `opskit dns reverse <ip>` returns PTR hostname(s). **Independent test:** reverse a known IPv4/IPv6 (loopback) → hostname(s) + exit code.
 
-- [ ] T024 [P] [US2] Tests for reverse (PTR, no-record case) via mock + loopback in `tests/integration/test_reverse.py`
-- [ ] T025 [US2] Implement `reverse()` in `src/opskit/dns/api.py`
-- [ ] T026 [US2] Implement `dns reverse` command in `src/opskit/dns/cli.py`
+- [X] T024 [P] [US2] Tests for reverse (PTR, no-record case) via mock + loopback in `tests/integration/test_reverse.py`
+- [X] T025 [US2] Implement `reverse()` in `src/opskit/dns/api.py`
+- [X] T026 [US2] Implement `dns reverse` command in `src/opskit/dns/cli.py`
 
 ## Phase 5: User Story 3 — Custom resolver & query controls (Priority: P2)
 

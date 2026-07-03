@@ -10,6 +10,9 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 
+import dns.exception
+import dns.reversename
+
 from opskit.core.errors import UsageError
 from opskit.dns.models import (
     DnsQuery,
@@ -129,6 +132,65 @@ def lookup(
                 port=port,
             )
         )
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    return LookupResult(
+        query=query,
+        resolver=Resolver(address=server_addr),
+        records=tuple(records),
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def reverse(
+    ip: str,
+    *,
+    server: str | Sequence[str] | None = None,
+    transport: Transport | str = "auto",
+    timeout: float = 5.0,
+    retries: int = 2,
+    port: int = 53,
+    resolver: ResolverEngine | None = None,
+) -> LookupResult:
+    """Reverse (PTR) lookup for an IPv4 or IPv6 address.
+
+    Returns a :class:`LookupResult` whose records are the PTR hostname(s); an empty tuple means
+    the address has no PTR record.
+
+    Raises:
+        UsageError: For an invalid IP or bad controls (before any network I/O).
+        DnsError: For resolution failures.
+    """
+    if not ip or not ip.strip():
+        raise UsageError("an IP address is required")
+    try:
+        ptr_name = dns.reversename.from_address(ip.strip())
+    except (ValueError, dns.exception.SyntaxError) as exc:
+        raise UsageError(f"invalid IP address: {ip}") from exc
+    transport_enum = _coerce_transport(transport)
+    servers = _coerce_servers(server)
+    _validate(timeout, retries, port)
+
+    server_addr = servers[0] if servers else system_nameserver()
+    engine: ResolverEngine = resolver if resolver is not None else DnspythonResolver()
+    query = DnsQuery(
+        target=ip,
+        record_types=(RecordType.PTR,),
+        servers=servers,
+        transport=transport_enum,
+        timeout_s=timeout,
+        retries=retries,
+        port=port,
+    )
+    start = time.perf_counter()
+    records = engine.query(
+        str(ptr_name),
+        RecordType.PTR,
+        server=server_addr,
+        transport=transport_enum,
+        timeout=timeout,
+        retries=retries,
+        port=port,
+    )
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     return LookupResult(
         query=query,
