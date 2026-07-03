@@ -105,8 +105,8 @@ max-args = 9  # DNS query controls (server/transport/timeout/retries/port/…) l
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D", "ANN", "S101", "PLR2004"]
 "noxfile.py" = ["D", "ANN"]
-# Typer needs Optional[...] (not X | None) for CLI params to resolve on Python 3.9:
-"src/opskit/**/cli.py" = ["UP007", "UP045"]
+# Typer needs Optional[...] (not X | None) on 3.9; CLI commands legitimately have many options:
+"src/opskit/**/cli.py" = ["UP007", "UP045", "PLR0913"]
 
 # ---------------------------------------------------------------------------
 # Type checking — mypy --strict + pyright

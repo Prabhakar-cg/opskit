@@ -91,9 +91,9 @@ in parallel (different files, no incomplete deps). Story labels `[US1]`–`[US9]
 
 **Goal:** targets from args/file/stdin; NDJSON; scriptable aggregate exit code. **Independent test:** 100 names via stdin → one envelope per line; exit code reflects aggregate.
 
-- [ ] T037 [P] [US5] Tests: args/file/stdin ingestion, `--jsonl`, aggregate exit-code rule in `tests/unit/test_batch.py`
+- [X] T037 [P] [US5] Tests: args/file/stdin ingestion, `--jsonl`, aggregate exit-code rule in `tests/unit/test_batch.py`
 - [ ] T038 [US5] Implement target ingestion (args/`--file`/stdin `-`) + batch dispatch in `src/opskit/dns/cli.py`
-- [ ] T039 [US5] Implement `--jsonl` NDJSON output + aggregate exit-code rule (non-success if any target fails) in `src/opskit/core/output.py`
+- [X] T039 [US5] Implement `--jsonl` NDJSON output + aggregate exit-code rule (non-success if any target fails) in `src/opskit/core/output.py`
 
 ## Phase 9: User Story 6 — Watch mode (Priority: P3)
 
