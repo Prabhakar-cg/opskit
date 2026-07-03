@@ -75,9 +75,9 @@ in parallel (different files, no incomplete deps). Story labels `[US1]`–`[US9]
 
 **Goal:** query several resolvers and highlight differences. **Independent test:** two loopback resolvers with differing answers → differences surfaced; matching → reported consistent.
 
-- [ ] T031 [P] [US4] Integration tests: consistent vs differing answers (loopback split-horizon) in `tests/integration/test_compare.py`
-- [ ] T032 [US4] Implement `compare()` producing `ResolverComparison` (concurrent via core pool) in `src/opskit/dns/api.py`
-- [ ] T033 [US4] Implement `--diff` rendering (per-resolver difference highlighting) in `src/opskit/core/output.py` and wire `--diff` in `src/opskit/dns/cli.py`
+- [X] T031 [P] [US4] Integration tests: consistent vs differing answers (loopback split-horizon) in `tests/integration/test_compare.py`
+- [X] T032 [US4] Implement `compare()` producing `ResolverComparison` (concurrent via core pool) in `src/opskit/dns/api.py`
+- [X] T033 [US4] Implement `--diff` rendering (per-resolver difference highlighting) in `src/opskit/core/output.py` and wire `--diff` in `src/opskit/dns/cli.py`
 
 ## Phase 7: User Story 9 — Programmatic API (Priority: P2)
 

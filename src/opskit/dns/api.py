@@ -19,8 +19,11 @@ from opskit.dns.models import (
     DnsQuery,
     DnsRecord,
     LookupResult,
+    Outcome,
     RecordType,
     Resolver,
+    ResolverAnswer,
+    ResolverComparison,
     Transport,
 )
 from opskit.dns.resolver import DnspythonResolver, system_nameserver
@@ -281,4 +284,81 @@ def lookup_all(
         resolver=Resolver(address=server_addr),
         records=tuple(records),
         elapsed_ms=elapsed_ms,
+    )
+
+
+_MIN_COMPARE_SERVERS = 2
+
+
+def _outcome_for(error: DnsError) -> Outcome:
+    """Map a DNS error to its outcome class (defaults to SERVFAIL for unmapped errors)."""
+    try:
+        return Outcome(error.code)
+    except ValueError:
+        return Outcome.SERVFAIL
+
+
+def _comparison_consistent(answers: Sequence[ResolverAnswer]) -> bool:
+    """True when every resolver returned the same outcome and record set (TTL ignored)."""
+    signatures = {
+        (answer.outcome, frozenset((r.type, r.value) for r in answer.records))
+        for answer in answers
+    }
+    return len(signatures) == 1
+
+
+def compare(
+    target: str,
+    servers: Sequence[str],
+    types: Sequence[RecordType | str] = ("A",),
+    *,
+    transport: Transport | str = "auto",
+    timeout: float = 5.0,
+    retries: int = 2,
+    port: int = 53,
+    resolver: ResolverEngine | None = None,
+) -> ResolverComparison:
+    """Query the same name across several resolvers and compare their answers.
+
+    Returns a :class:`ResolverComparison` with one :class:`ResolverAnswer` per resolver (records
+    or a failure), and a ``consistent`` flag that is True only when every resolver agrees. A
+    resolver that fails does not abort the comparison — its failure is recorded.
+
+    Raises:
+        UsageError: For invalid input or fewer than two resolvers.
+    """
+    server_list = list(_coerce_servers(servers))
+    if len(server_list) < _MIN_COMPARE_SERVERS:
+        raise UsageError("comparing resolvers needs at least two --server values")
+    record_types = _coerce_types(types)
+    answers: list[ResolverAnswer] = []
+    for srv in server_list:
+        try:
+            result = lookup(
+                target,
+                record_types,
+                server=srv,
+                transport=transport,
+                timeout=timeout,
+                retries=retries,
+                port=port,
+                resolver=resolver,
+            )
+            answers.append(
+                ResolverAnswer(
+                    server=srv,
+                    outcome=Outcome.OK,
+                    records=result.records,
+                    elapsed_ms=result.elapsed_ms,
+                )
+            )
+        except DnsError as exc:
+            answers.append(
+                ResolverAnswer(server=srv, outcome=_outcome_for(exc), error=exc.message)
+            )
+    return ResolverComparison(
+        target=target,
+        record_types=record_types,
+        answers=tuple(answers),
+        consistent=_comparison_consistent(answers),
     )

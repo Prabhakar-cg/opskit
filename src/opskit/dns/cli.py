@@ -16,7 +16,7 @@ import typer
 
 from opskit.core.errors import OpskitError, UsageError
 from opskit.core.exit_codes import ExitCode, exit_code_for
-from opskit.core.output import make_console, render_records
+from opskit.core.output import make_console, render_comparison, render_records
 from opskit.core.result import build_envelope, to_json
 from opskit.dns import api
 from opskit.dns.models import LookupResult
@@ -147,6 +147,65 @@ def _run(
     return _aggregate_exit(outcomes)
 
 
+def _run_compare(
+    targets: Sequence[str],
+    servers: Sequence[str],
+    types: Sequence[str],
+    *,
+    transport: str,
+    timeout: float,
+    retries: int,
+    port: int,
+    as_json: bool,
+    jsonl: bool,
+    no_color: bool,
+) -> ExitCode:
+    """Compare each target across the given resolvers; render and return the exit code."""
+    try:
+        comparisons = [
+            api.compare(
+                target,
+                list(servers),
+                types,
+                transport=transport,
+                timeout=timeout,
+                retries=retries,
+                port=port,
+            )
+            for target in targets
+        ]
+    except OpskitError as error:
+        typer.echo(f"error: {error.message}", err=True)
+        return ExitCode.USAGE
+
+    if as_json or jsonl:
+        envelopes = [
+            build_envelope(
+                command="dns.compare",
+                query={
+                    "target": c.target,
+                    "record_types": [t.value for t in c.record_types],
+                },
+                result=c.to_dict(),
+                error=None,
+                elapsed_ms=0.0,
+            )
+            for c in comparisons
+        ]
+        if jsonl:
+            for envelope in envelopes:
+                typer.echo(to_json(envelope, indent=None))
+        elif len(envelopes) == 1:
+            typer.echo(to_json(envelopes[0]))
+        else:
+            typer.echo(json.dumps(envelopes, indent=2))
+    else:
+        console = make_console(no_color=no_color)
+        for comparison in comparisons:
+            render_comparison(comparison, console=console)
+    return ExitCode.OK if all(c.consistent for c in comparisons) else ExitCode.PARTIAL
+
+
 @app.command()
 def lookup(
     target: Annotated[
@@ -161,6 +220,13 @@ def lookup(
         typer.Option(
             "--all",
             help="Query all common record types (A/AAAA/CNAME/MX/NS/SOA/TXT/SRV/CAA).",
+        ),
+    ] = False,
+    diff: Annotated[
+        bool,
+        typer.Option(
+            "--diff",
+            help="Query every --server resolver and compare/diff their answers.",
         ),
     ] = False,
     server: Annotated[
@@ -198,6 +264,21 @@ def lookup(
     except UsageError as error:
         typer.echo(f"error: {error.message}", err=True)
         raise typer.Exit(int(ExitCode.USAGE)) from error
+
+    if diff:
+        code = _run_compare(
+            targets,
+            server or [],
+            requested,
+            transport=transport,
+            timeout=timeout,
+            retries=retries,
+            port=port,
+            as_json=as_json,
+            jsonl=jsonl,
+            no_color=no_color,
+        )
+        raise typer.Exit(int(code))
 
     def run_one(name: str) -> LookupResult:
         if all_types:

@@ -6,7 +6,7 @@ JSON envelope. See specs/001-dns-diagnostics/data-model.md.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -130,25 +130,43 @@ class LookupResult:
 
 
 @dataclass(frozen=True)
+class ResolverAnswer:
+    """What one resolver returned for a compared query (records, or a failure)."""
+
+    server: str
+    outcome: Outcome
+    records: tuple[DnsRecord, ...] = ()
+    error: str | None = None
+    elapsed_ms: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable mapping of this resolver's answer."""
+        return {
+            "server": self.server,
+            "outcome": self.outcome.value,
+            "records": [r.to_dict() for r in self.records],
+            "error": self.error,
+            "elapsed_ms": round(self.elapsed_ms, 3),
+        }
+
+
+@dataclass(frozen=True)
 class ResolverComparison:
-    """Per-resolver results for one name, with agreement/difference analysis."""
+    """The same query asked of several resolvers, with agreement analysis.
+
+    ``consistent`` is True only when every resolver returned the same outcome and record set.
+    """
 
     target: str
-    results: tuple[LookupResult, ...]
+    record_types: tuple[RecordType, ...]
+    answers: tuple[ResolverAnswer, ...]
     consistent: bool
-    differences: Mapping[str, tuple[DnsRecord, ...]]
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable mapping of the comparison."""
         return {
             "target": self.target,
+            "record_types": [t.value for t in self.record_types],
             "consistent": self.consistent,
-            "resolvers": {
-                r.resolver.address: [rec.to_dict() for rec in r.records]
-                for r in self.results
-            },
-            "differences": {
-                addr: [rec.to_dict() for rec in recs]
-                for addr, recs in self.differences.items()
-            },
+            "answers": [a.to_dict() for a in self.answers],
         }
