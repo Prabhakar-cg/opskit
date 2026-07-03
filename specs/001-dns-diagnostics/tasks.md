@@ -13,26 +13,26 @@ in parallel (different files, no incomplete deps). Story labels `[US1]`–`[US9]
 
 ## Phase 1: Setup
 
-- [ ] T001 Create package skeletons `src/opskit/core/__init__.py` and `src/opskit/dns/__init__.py`
-- [ ] T002 [P] Create test dirs + `tests/conftest.py`, `tests/integration/`, `tests/contract/`, `tests/network/` (with `__init__.py` where needed)
-- [ ] T003 [P] Register a `dns` Typer sub-app placeholder on the root app in `src/opskit/cli.py` (zero logic)
+- [X] T001 Create package skeletons `src/opskit/core/__init__.py` and `src/opskit/dns/__init__.py`
+- [X] T002 [P] Create test dirs + `tests/conftest.py`, `tests/integration/`, `tests/contract/`, `tests/network/` (with `__init__.py` where needed)
+- [X] T003 [P] Register a `dns` Typer sub-app placeholder on the root app in `src/opskit/cli.py` (zero logic)
 
 ## Phase 2: Foundational (blocking — shared core; must complete before user stories)
 
-- [ ] T004 [P] Define `RecordType`, `Transport`, `Outcome` enums in `src/opskit/dns/models.py`
-- [ ] T005 [P] Define `ExitCode` enum in `src/opskit/core/exit_codes.py`
-- [ ] T006 Implement base exception hierarchy `OpskitError`, `UsageError` in `src/opskit/core/errors.py`
-- [ ] T007 Implement DNS exceptions (`DnsError` → `NxDomain`/`ServerFailure`/`DnsRefused`/`DnsTimeout`/`DnssecError`) in `src/opskit/dns/errors.py`
-- [ ] T008 Implement exception→`ExitCode` mapping in `src/opskit/core/exit_codes.py`
-- [ ] T009 Implement typed result dataclasses (`DnsRecord`, `DnsQuery`, `LookupResult`, `Resolver`, `ResolverComparison`, `TraceStep`) with `to_dict()` and `.ok`/iteration in `src/opskit/dns/models.py`
-- [ ] T010 Implement versioned JSON envelope (`schema_version`, `command`, `query`, `result`, `error`, `elapsed_ms`) + `to_json()` in `src/opskit/core/result.py`
-- [ ] T011 Implement output rendering (rich human tables, `--json`, `--jsonl`; honor `NO_COLOR` + auto-plain-when-piped) in `src/opskit/core/output.py`
-- [ ] T012 Implement config precedence (flags > env `OPSKIT_*` > profile > file `[default]` > built-in) + TOML load (`tomllib`/`tomli`) in `src/opskit/core/config.py`
-- [ ] T013 [P] Implement bounded worker pool for batch/multi-resolver in `src/opskit/core/concurrency.py`
-- [ ] T014 Implement injectable resolver abstraction wrapping `dnspython` in `src/opskit/dns/resolver.py`
-- [ ] T015 [P] Add injected mock-resolver fixture (canned answers, every rcode, timeouts) in `tests/conftest.py`
+- [X] T004 [P] Define `RecordType`, `Transport`, `Outcome` enums in `src/opskit/dns/models.py`
+- [X] T005 [P] Define `ExitCode` enum in `src/opskit/core/exit_codes.py`
+- [X] T006 Implement base exception hierarchy `OpskitError`, `UsageError` in `src/opskit/core/errors.py`
+- [X] T007 Implement DNS exceptions (`DnsError` → `NxDomain`/`ServerFailure`/`DnsRefused`/`DnsTimeout`/`DnssecError`) in `src/opskit/dns/errors.py`
+- [X] T008 Implement exception→`ExitCode` mapping in `src/opskit/core/exit_codes.py`
+- [X] T009 Implement typed result dataclasses (`DnsRecord`, `DnsQuery`, `LookupResult`, `Resolver`, `ResolverComparison`, `TraceStep`) with `to_dict()` and `.ok`/iteration in `src/opskit/dns/models.py`
+- [X] T010 Implement versioned JSON envelope (`schema_version`, `command`, `query`, `result`, `error`, `elapsed_ms`) + `to_json()` in `src/opskit/core/result.py`
+- [X] T011 Implement output rendering (rich human tables, `--json`, `--jsonl`; honor `NO_COLOR` + auto-plain-when-piped) in `src/opskit/core/output.py`
+- [X] T012 Implement config precedence (flags > env `OPSKIT_*` > profile > file `[default]` > built-in) + TOML load (`tomllib`/`tomli`) in `src/opskit/core/config.py`
+- [X] T013 [P] Implement bounded worker pool for batch/multi-resolver in `src/opskit/core/concurrency.py`
+- [X] T014 Implement injectable resolver abstraction wrapping `dnspython` in `src/opskit/dns/resolver.py`
+- [X] T015 [P] Add injected mock-resolver fixture (canned answers, every rcode, timeouts) in `tests/conftest.py`
 - [ ] T016 Add in-process loopback DNS server fixture (`dnslib`; UDP/TCP, drop, REFUSED, TC-bit, injected latency, per-resolver answers) in `tests/integration/conftest.py`
-- [ ] T017 Configure `logging.getLogger("opskit")` + `NullHandler` in `src/opskit/__init__.py`
+- [X] T017 Configure `logging.getLogger("opskit")` + `NullHandler` in `src/opskit/__init__.py`
 
 **Checkpoint:** core contracts compile, mypy/pyright clean, fixtures usable — user stories can start.
 
@@ -43,12 +43,12 @@ in parallel (different files, no incomplete deps). Story labels `[US1]`–`[US9]
 **Goal:** `opskit dns lookup <name> -t <type>` returns records with human + `--json` output and correct exit codes, identically on all OSes.
 **Independent test:** run a lookup for a known name (mock + loopback), assert records, envelope, and exit code.
 
-- [ ] T018 [P] [US1] Unit tests for `lookup()` (A/AAAA/MX/TXT/CNAME/NS/SOA/SRV; NXDOMAIN/SERVFAIL/REFUSED → exceptions) via mock resolver in `tests/unit/test_dns_lookup.py`
+- [X] T018 [P] [US1] Unit tests for `lookup()` (A/AAAA/MX/TXT/CNAME/NS/SOA/SRV; NXDOMAIN/SERVFAIL/REFUSED → exceptions) via mock resolver in `tests/unit/test_dns_lookup.py`
 - [ ] T019 [P] [US1] Loopback integration test for forward lookup in `tests/integration/test_lookup_loopback.py`
-- [ ] T020 [P] [US1] Contract test for the `--json` lookup envelope in `tests/contract/test_json_envelope.py`
-- [ ] T021 [US1] Implement `lookup()` in `src/opskit/dns/api.py` (record types, per-query `elapsed_ms`, typed `LookupResult`, raises `DnsError` subclasses)
-- [ ] T022 [US1] Implement `dns lookup` command (thin; `-t/--type` repeatable, `--json`) in `src/opskit/dns/cli.py`, delegating to api and mapping exceptions→exit codes
-- [ ] T023 [P] [US1] CLI test (CliRunner: human output, exit codes, `--json`, `NO_COLOR`) in `tests/unit/test_cli_lookup.py`
+- [X] T020 [P] [US1] Contract test for the `--json` lookup envelope in `tests/contract/test_json_envelope.py`
+- [X] T021 [US1] Implement `lookup()` in `src/opskit/dns/api.py` (record types, per-query `elapsed_ms`, typed `LookupResult`, raises `DnsError` subclasses)
+- [X] T022 [US1] Implement `dns lookup` command (thin; `-t/--type` repeatable, `--json`) in `src/opskit/dns/cli.py`, delegating to api and mapping exceptions→exit codes
+- [X] T023 [P] [US1] CLI test (CliRunner: human output, exit codes, `--json`, `NO_COLOR`) in `tests/unit/test_cli_lookup.py`
 
 **Checkpoint:** MVP works — a cross-platform forward lookup with structured output + exit codes.
 
