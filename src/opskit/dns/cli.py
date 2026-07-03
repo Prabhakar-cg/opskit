@@ -32,6 +32,26 @@ app = typer.Typer(
     name="dns", help="DNS diagnostics (lookup, reverse).", no_args_is_help=True
 )
 
+_LOOKUP_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit dns lookup example.com -t MX -t TXT
+  opskit dns lookup example.com --all
+  opskit dns lookup example.com --diff -s 1.1.1.1 -s 8.8.8.8
+  opskit dns lookup www.wikipedia.org --trace
+  opskit dns lookup -i hosts.txt --jsonl
+  opskit dns lookup example.com --watch 30s
+"""
+
+_REVERSE_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit dns reverse 8.8.8.8
+  opskit dns reverse 2001:4860:4860::8888 --json
+  opskit dns reverse 8.8.8.8 --trace
+  opskit dns reverse -i ips.txt
+"""
+
 # (target, result-or-None, error-or-None) for one target in a batch.
 _Outcome = tuple[str, Optional[LookupResult], Optional[OpskitError]]
 
@@ -356,20 +376,23 @@ def _run_or_watch(
     raise typer.Exit(int(code))
 
 
-@app.command()
+@app.command(epilog=_LOOKUP_EPILOG)
 def lookup(
     target: Annotated[
         Optional[str], typer.Argument(help="Hostname to resolve (or use --input-file).")
     ] = None,
     types: Annotated[
         Optional[list[str]],
-        typer.Option("--type", "-t", help="Record type(s) to query."),
+        typer.Option(
+            "--type", "-t", help="Record type(s) to query.", rich_help_panel="Query"
+        ),
     ] = None,
     all_types: Annotated[
         bool,
         typer.Option(
             "--all",
             help="Query all common record types (A/AAAA/CNAME/MX/NS/SOA/TXT/SRV/CAA).",
+            rich_help_panel="Modes",
         ),
     ] = False,
     diff: Annotated[
@@ -377,20 +400,42 @@ def lookup(
         typer.Option(
             "--diff",
             help="Query every --server resolver and compare/diff their answers.",
+            rich_help_panel="Modes",
         ),
     ] = False,
     server: Annotated[
         Optional[list[str]],
-        typer.Option("--server", "-s", help="Resolver(s) to query."),
+        typer.Option(
+            "--server",
+            "-s",
+            help="Resolver(s) to query.",
+            rich_help_panel="Query controls",
+        ),
     ] = None,
     transport: Annotated[
-        str, typer.Option("--transport", help="udp | tcp | auto.")
+        str,
+        typer.Option(
+            "--transport", help="udp | tcp | auto.", rich_help_panel="Query controls"
+        ),
     ] = "auto",
     timeout: Annotated[
-        float, typer.Option("--timeout", help="Per-attempt timeout (s).")
+        float,
+        typer.Option(
+            "--timeout",
+            help="Per-attempt timeout (s).",
+            rich_help_panel="Query controls",
+        ),
     ] = 5.0,
-    retries: Annotated[int, typer.Option("--retries", help="Retry count.")] = 2,
-    port: Annotated[int, typer.Option("--port", help="Resolver port.")] = 53,
+    retries: Annotated[
+        int,
+        typer.Option(
+            "--retries", help="Retry count.", rich_help_panel="Query controls"
+        ),
+    ] = 2,
+    port: Annotated[
+        int,
+        typer.Option("--port", help="Resolver port.", rich_help_panel="Query controls"),
+    ] = 53,
     input_file: Annotated[
         Optional[Path],
         typer.Option(
@@ -398,26 +443,40 @@ def lookup(
         ),
     ] = None,
     as_json: Annotated[
-        bool, typer.Option("--json", help="Emit the versioned JSON envelope.")
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
     ] = False,
     jsonl: Annotated[
-        bool, typer.Option("--jsonl", help="Emit one JSON envelope per line (NDJSON).")
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
     ] = False,
     trace: Annotated[
         bool,
         typer.Option(
             "--trace",
             help="Show the iterative resolution path (root -> authoritative).",
+            rich_help_panel="Modes",
         ),
     ] = False,
     watch: Annotated[
         Optional[str],
         typer.Option(
-            "--watch", help="Re-run every interval (e.g. 5s, 2m) until Ctrl-C."
+            "--watch",
+            help="Re-run every interval (e.g. 5s, 2m) until Ctrl-C.",
+            rich_help_panel="Modes",
         ),
     ] = None,
     no_color: Annotated[
-        bool, typer.Option("--no-color", help="Disable colored output.")
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
     ] = False,
 ) -> None:
     """Forward DNS lookup for one or more hostnames."""
@@ -492,7 +551,7 @@ def lookup(
     _run_or_watch(action, watch=watch, no_color=no_color)
 
 
-@app.command()
+@app.command(epilog=_REVERSE_EPILOG)
 def reverse(
     target: Annotated[
         Optional[str],
@@ -500,16 +559,37 @@ def reverse(
     ] = None,
     server: Annotated[
         Optional[list[str]],
-        typer.Option("--server", "-s", help="Resolver(s) to query."),
+        typer.Option(
+            "--server",
+            "-s",
+            help="Resolver(s) to query.",
+            rich_help_panel="Query controls",
+        ),
     ] = None,
     transport: Annotated[
-        str, typer.Option("--transport", help="udp | tcp | auto.")
+        str,
+        typer.Option(
+            "--transport", help="udp | tcp | auto.", rich_help_panel="Query controls"
+        ),
     ] = "auto",
     timeout: Annotated[
-        float, typer.Option("--timeout", help="Per-attempt timeout (s).")
+        float,
+        typer.Option(
+            "--timeout",
+            help="Per-attempt timeout (s).",
+            rich_help_panel="Query controls",
+        ),
     ] = 5.0,
-    retries: Annotated[int, typer.Option("--retries", help="Retry count.")] = 2,
-    port: Annotated[int, typer.Option("--port", help="Resolver port.")] = 53,
+    retries: Annotated[
+        int,
+        typer.Option(
+            "--retries", help="Retry count.", rich_help_panel="Query controls"
+        ),
+    ] = 2,
+    port: Annotated[
+        int,
+        typer.Option("--port", help="Resolver port.", rich_help_panel="Query controls"),
+    ] = 53,
     input_file: Annotated[
         Optional[Path],
         typer.Option(
@@ -517,26 +597,40 @@ def reverse(
         ),
     ] = None,
     as_json: Annotated[
-        bool, typer.Option("--json", help="Emit the versioned JSON envelope.")
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
     ] = False,
     jsonl: Annotated[
-        bool, typer.Option("--jsonl", help="Emit one JSON envelope per line (NDJSON).")
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
     ] = False,
     trace: Annotated[
         bool,
         typer.Option(
             "--trace",
             help="Show the iterative resolution path (root -> authoritative).",
+            rich_help_panel="Modes",
         ),
     ] = False,
     watch: Annotated[
         Optional[str],
         typer.Option(
-            "--watch", help="Re-run every interval (e.g. 5s, 2m) until Ctrl-C."
+            "--watch",
+            help="Re-run every interval (e.g. 5s, 2m) until Ctrl-C.",
+            rich_help_panel="Modes",
         ),
     ] = None,
     no_color: Annotated[
-        bool, typer.Option("--no-color", help="Disable colored output.")
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
     ] = False,
 ) -> None:
     """Reverse (PTR) lookup for one or more IP addresses."""
