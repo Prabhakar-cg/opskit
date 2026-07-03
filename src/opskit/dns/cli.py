@@ -156,6 +156,13 @@ def lookup(
         Optional[list[str]],
         typer.Option("--type", "-t", help="Record type(s) to query."),
     ] = None,
+    all_types: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Query all common record types (A/AAAA/CNAME/MX/NS/SOA/TXT/SRV/CAA).",
+        ),
+    ] = False,
     server: Annotated[
         Optional[list[str]],
         typer.Option("--server", "-s", help="Resolver(s) to query."),
@@ -193,6 +200,15 @@ def lookup(
         raise typer.Exit(int(ExitCode.USAGE)) from error
 
     def run_one(name: str) -> LookupResult:
+        if all_types:
+            return api.lookup_all(
+                name,
+                server=server,
+                transport=transport,
+                timeout=timeout,
+                retries=retries,
+                port=port,
+            )
         return api.lookup(
             name,
             requested,
@@ -204,6 +220,11 @@ def lookup(
         )
 
     def error_query(name: str) -> dict[str, Any]:
+        if all_types:
+            return {
+                "target": name,
+                "record_types": [t.value for t in api.ALL_RECORD_TYPES],
+            }
         return {"target": name, "record_types": [t.upper() for t in requested]}
 
     code = _run(

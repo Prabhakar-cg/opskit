@@ -23,6 +23,7 @@ class RecordType(str, Enum):
     NS = "NS"
     SOA = "SOA"
     SRV = "SRV"
+    CAA = "CAA"
     PTR = "PTR"
 
 

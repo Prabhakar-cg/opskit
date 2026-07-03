@@ -14,6 +14,7 @@ import dns.exception
 import dns.reversename
 
 from opskit.core.errors import UsageError
+from opskit.dns.errors import DnsError, NxDomain
 from opskit.dns.models import (
     DnsQuery,
     DnsRecord,
@@ -26,6 +27,20 @@ from opskit.dns.resolver import DnspythonResolver, system_nameserver
 from opskit.dns.resolver import Resolver as ResolverEngine
 
 _MAX_PORT = 65535
+
+# The common forward record types queried by lookup_all() / `--all`. DNS `ANY` is deprecated
+# (RFC 8482), so a one-stop lookup fans out across these individually.
+ALL_RECORD_TYPES: tuple[RecordType, ...] = (
+    RecordType.A,
+    RecordType.AAAA,
+    RecordType.CNAME,
+    RecordType.MX,
+    RecordType.NS,
+    RecordType.SOA,
+    RecordType.TXT,
+    RecordType.SRV,
+    RecordType.CAA,
+)
 
 
 def _coerce_types(types: Sequence[RecordType | str]) -> tuple[RecordType, ...]:
@@ -191,6 +206,75 @@ def reverse(
         retries=retries,
         port=port,
     )
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    return LookupResult(
+        query=query,
+        resolver=Resolver(address=server_addr),
+        records=tuple(records),
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def lookup_all(
+    target: str,
+    *,
+    server: str | Sequence[str] | None = None,
+    transport: Transport | str = "auto",
+    timeout: float = 5.0,
+    retries: int = 2,
+    port: int = 53,
+    resolver: ResolverEngine | None = None,
+) -> LookupResult:
+    """Query every common forward record type at once — a one-stop lookup.
+
+    Records from the types that answer are aggregated. Per-type failures are tolerated (some
+    resolvers refuse specific types), so nothing that exists is missed.
+
+    Raises:
+        UsageError: For invalid input (before any network I/O).
+        NxDomain: If the name does not exist.
+        DnsError: If every type fails and no records are collected (the first error).
+    """
+    if not target or not target.strip():
+        raise UsageError("a target name is required")
+    transport_enum = _coerce_transport(transport)
+    servers = _coerce_servers(server)
+    _validate(timeout, retries, port)
+
+    server_addr = servers[0] if servers else system_nameserver()
+    engine: ResolverEngine = resolver if resolver is not None else DnspythonResolver()
+    query = DnsQuery(
+        target=target,
+        record_types=ALL_RECORD_TYPES,
+        servers=servers,
+        transport=transport_enum,
+        timeout_s=timeout,
+        retries=retries,
+        port=port,
+    )
+    start = time.perf_counter()
+    records: list[DnsRecord] = []
+    first_error: DnsError | None = None
+    for rtype in ALL_RECORD_TYPES:
+        try:
+            records.extend(
+                engine.query(
+                    target,
+                    rtype,
+                    server=server_addr,
+                    transport=transport_enum,
+                    timeout=timeout,
+                    retries=retries,
+                    port=port,
+                )
+            )
+        except NxDomain:
+            raise  # NXDOMAIN is name-level: the name does not exist.
+        except DnsError as exc:
+            if first_error is None:
+                first_error = exc
+    if not records and first_error is not None:
+        raise first_error
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     return LookupResult(
         query=query,
