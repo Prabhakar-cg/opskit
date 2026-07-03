@@ -99,8 +99,8 @@ in parallel (different files, no incomplete deps). Story labels `[US1]`–`[US9]
 
 **Goal:** `--watch <interval>` re-runs and surfaces changes. **Independent test:** interval re-runs; a changed answer is surfaced; Ctrl+C exits cleanly.
 
-- [ ] T040 [P] [US6] Tests: interval re-run + change detection in `tests/unit/test_watch.py`
-- [ ] T041 [US6] Implement `--watch` loop + change detection + KeyboardInterrupt handling in `src/opskit/dns/cli.py`
+- [X] T040 [P] [US6] Tests: interval re-run + change detection in `tests/unit/test_watch.py`
+- [X] T041 [US6] Implement `--watch` loop + change detection + KeyboardInterrupt handling in `src/opskit/dns/cli.py`
 
 ## Phase 10: User Story 7 — Saved profiles (Priority: P3)
 

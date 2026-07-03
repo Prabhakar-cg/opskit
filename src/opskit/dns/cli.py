@@ -8,7 +8,9 @@ via a positional argument and/or ``--input-file`` (one target per line, ``#`` co
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -123,6 +125,18 @@ def _render_human(outcomes: Sequence[_Outcome], *, batch: bool, no_color: bool) 
             render_records(result.records, console=console)
 
 
+def _signature(outcomes: Sequence[_Outcome]) -> str:
+    """A change-detection key over targets and their (type, value) records (TTL ignored)."""
+    parts: list[object] = []
+    for target, result, error in outcomes:
+        if result is not None:
+            recs = sorted([r.type.value, r.value] for r in result.records)
+            parts.append([target, "ok", recs])
+        else:
+            parts.append([target, error.code if error else "error"])
+    return json.dumps(parts, sort_keys=True)
+
+
 def _run(
     command: str,
     targets: Sequence[str],
@@ -132,8 +146,8 @@ def _run(
     as_json: bool,
     jsonl: bool,
     no_color: bool,
-) -> ExitCode:
-    """Execute the query for each target and render, returning the aggregate exit code."""
+) -> tuple[ExitCode, str]:
+    """Execute the query for each target and render; return (exit code, change signature)."""
     outcomes: list[_Outcome] = []
     for target in targets:
         try:
@@ -144,7 +158,7 @@ def _run(
         _render_json(command, outcomes, error_query, jsonl=jsonl)
     else:
         _render_human(outcomes, batch=len(targets) > 1, no_color=no_color)
-    return _aggregate_exit(outcomes)
+    return _aggregate_exit(outcomes), _signature(outcomes)
 
 
 def _run_compare(
@@ -159,8 +173,8 @@ def _run_compare(
     as_json: bool,
     jsonl: bool,
     no_color: bool,
-) -> ExitCode:
-    """Compare each target across the given resolvers; render and return the exit code."""
+) -> tuple[ExitCode, str]:
+    """Compare each target across the given resolvers; render; return (code, signature)."""
     try:
         comparisons = [
             api.compare(
@@ -176,7 +190,7 @@ def _run_compare(
         ]
     except OpskitError as error:
         typer.echo(f"error: {error.message}", err=True)
-        return ExitCode.USAGE
+        return ExitCode.USAGE, ""
 
     if as_json or jsonl:
         envelopes = [
@@ -203,7 +217,90 @@ def _run_compare(
         console = make_console(no_color=no_color)
         for comparison in comparisons:
             render_comparison(comparison, console=console)
-    return ExitCode.OK if all(c.consistent for c in comparisons) else ExitCode.PARTIAL
+    signature = json.dumps(
+        [
+            [
+                c.target,
+                [
+                    [
+                        a.server,
+                        a.outcome.value,
+                        sorted([r.type.value, r.value] for r in a.records),
+                    ]
+                    for a in c.answers
+                ],
+            ]
+            for c in comparisons
+        ]
+    )
+    code = ExitCode.OK if all(c.consistent for c in comparisons) else ExitCode.PARTIAL
+    return code, signature
+
+
+_ActionResult = tuple[ExitCode, str]
+
+
+def _parse_interval(text: str) -> float:
+    """Parse a --watch interval like '5', '5s', '250ms', or '2m' into seconds."""
+    value = text.strip().lower()
+    try:
+        if value.endswith("ms"):
+            seconds = float(value[:-2]) / 1000.0
+        elif value.endswith("s"):
+            seconds = float(value[:-1])
+        elif value.endswith("m"):
+            seconds = float(value[:-1]) * 60.0
+        else:
+            seconds = float(value)
+    except ValueError as exc:
+        raise UsageError(f"invalid --watch interval: {text}") from exc
+    if seconds <= 0:
+        raise UsageError("--watch interval must be positive")
+    return seconds
+
+
+def _watch(
+    action: Callable[[], _ActionResult],
+    *,
+    interval: float,
+    no_color: bool,
+) -> ExitCode:
+    """Re-run ``action`` every ``interval`` seconds until interrupted, flagging changes."""
+    console = make_console(no_color=no_color)
+    previous: str | None = None
+    code = ExitCode.OK
+    try:
+        while True:
+            code, signature = action()
+            if previous is None:
+                status = "initial"
+            elif signature != previous:
+                status = "changed"
+            else:
+                status = "no change"
+            stamp = datetime.now().strftime("%H:%M:%S")
+            console.print(
+                f"[dim]-- {stamp} - {status} - next in {interval:g}s (Ctrl-C to stop) --[/dim]"
+            )
+            previous = signature
+            time.sleep(interval)  # looked up at call time so tests can patch it
+    except KeyboardInterrupt:
+        return code
+
+
+def _run_or_watch(
+    action: Callable[[], _ActionResult], *, watch: str | None, no_color: bool
+) -> None:
+    """Run ``action`` once, or repeatedly under --watch; then exit with its code."""
+    if watch is not None:
+        try:
+            interval = _parse_interval(watch)
+        except UsageError as error:
+            typer.echo(f"error: {error.message}", err=True)
+            raise typer.Exit(int(ExitCode.USAGE)) from error
+        raise typer.Exit(int(_watch(action, interval=interval, no_color=no_color)))
+    code, _ = action()
+    raise typer.Exit(int(code))
 
 
 @app.command()
@@ -253,6 +350,12 @@ def lookup(
     jsonl: Annotated[
         bool, typer.Option("--jsonl", help="Emit one JSON envelope per line (NDJSON).")
     ] = False,
+    watch: Annotated[
+        Optional[str],
+        typer.Option(
+            "--watch", help="Re-run every interval (e.g. 5s, 2m) until Ctrl-C."
+        ),
+    ] = None,
     no_color: Annotated[
         bool, typer.Option("--no-color", help="Disable colored output.")
     ] = False,
@@ -264,21 +367,6 @@ def lookup(
     except UsageError as error:
         typer.echo(f"error: {error.message}", err=True)
         raise typer.Exit(int(ExitCode.USAGE)) from error
-
-    if diff:
-        code = _run_compare(
-            targets,
-            server or [],
-            requested,
-            transport=transport,
-            timeout=timeout,
-            retries=retries,
-            port=port,
-            as_json=as_json,
-            jsonl=jsonl,
-            no_color=no_color,
-        )
-        raise typer.Exit(int(code))
 
     def run_one(name: str) -> LookupResult:
         if all_types:
@@ -308,16 +396,31 @@ def lookup(
             }
         return {"target": name, "record_types": [t.upper() for t in requested]}
 
-    code = _run(
-        "dns.lookup",
-        targets,
-        run_one,
-        error_query,
-        as_json=as_json,
-        jsonl=jsonl,
-        no_color=no_color,
-    )
-    raise typer.Exit(int(code))
+    def action() -> _ActionResult:
+        if diff:
+            return _run_compare(
+                targets,
+                server or [],
+                requested,
+                transport=transport,
+                timeout=timeout,
+                retries=retries,
+                port=port,
+                as_json=as_json,
+                jsonl=jsonl,
+                no_color=no_color,
+            )
+        return _run(
+            "dns.lookup",
+            targets,
+            run_one,
+            error_query,
+            as_json=as_json,
+            jsonl=jsonl,
+            no_color=no_color,
+        )
+
+    _run_or_watch(action, watch=watch, no_color=no_color)
 
 
 @app.command()
@@ -350,6 +453,12 @@ def reverse(
     jsonl: Annotated[
         bool, typer.Option("--jsonl", help="Emit one JSON envelope per line (NDJSON).")
     ] = False,
+    watch: Annotated[
+        Optional[str],
+        typer.Option(
+            "--watch", help="Re-run every interval (e.g. 5s, 2m) until Ctrl-C."
+        ),
+    ] = None,
     no_color: Annotated[
         bool, typer.Option("--no-color", help="Disable colored output.")
     ] = False,
@@ -374,13 +483,15 @@ def reverse(
     def error_query(ip: str) -> dict[str, Any]:
         return {"target": ip}
 
-    code = _run(
-        "dns.reverse",
-        targets,
-        run_one,
-        error_query,
-        as_json=as_json,
-        jsonl=jsonl,
-        no_color=no_color,
-    )
-    raise typer.Exit(int(code))
+    def action() -> _ActionResult:
+        return _run(
+            "dns.reverse",
+            targets,
+            run_one,
+            error_query,
+            as_json=as_json,
+            jsonl=jsonl,
+            no_color=no_color,
+        )
+
+    _run_or_watch(action, watch=watch, no_color=no_color)
