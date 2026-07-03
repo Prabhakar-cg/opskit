@@ -130,6 +130,27 @@ class LookupResult:
 
 
 @dataclass(frozen=True)
+class TraceStep:
+    """One hop in an iterative resolution: which server was asked and what it returned."""
+
+    server: str
+    zone: str
+    response: str  # "referral" | "answer" | "error"
+    referrals: tuple[str, ...] = ()
+    records: tuple[DnsRecord, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable mapping of this trace step."""
+        return {
+            "server": self.server,
+            "zone": self.zone,
+            "response": self.response,
+            "referrals": list(self.referrals),
+            "records": [r.to_dict() for r in self.records],
+        }
+
+
+@dataclass(frozen=True)
 class ResolverAnswer:
     """What one resolver returned for a compared query (records, or a failure)."""
 

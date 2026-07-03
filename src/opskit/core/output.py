@@ -18,6 +18,7 @@ from opskit.dns.models import (
     RecordType,
     ResolverAnswer,
     ResolverComparison,
+    TraceStep,
 )
 
 
@@ -73,4 +74,25 @@ def render_comparison(comparison: ResolverComparison, *, console: Console) -> No
             else f"[red]{answer.outcome.value}[/red]"
         )
         table.add_row(resolver, outcome, cell)
+    console.print(table)
+
+
+def render_trace(steps: Sequence[TraceStep], *, console: Console) -> None:
+    """Print an iterative resolution trace (root -> authoritative), one row per hop."""
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("#", justify="right")
+    table.add_column("SERVER")
+    table.add_column("ZONE")
+    table.add_column("RESULT")
+    for index, step in enumerate(steps, start=1):
+        if step.response == "answer":
+            records = "\n".join(f"{r.type.value}  {r.value}" for r in step.records)
+            detail = records or "(answer)"
+        elif step.response == "referral":
+            detail = (
+                "-> " + ", ".join(step.referrals) if step.referrals else "-> (referral)"
+            )
+        else:
+            detail = "(no response)"
+        table.add_row(str(index), step.server, step.zone, detail)
     console.print(table)

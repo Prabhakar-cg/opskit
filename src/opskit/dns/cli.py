@@ -18,10 +18,15 @@ import typer
 
 from opskit.core.errors import OpskitError, UsageError
 from opskit.core.exit_codes import ExitCode, exit_code_for
-from opskit.core.output import make_console, render_comparison, render_records
+from opskit.core.output import (
+    make_console,
+    render_comparison,
+    render_records,
+    render_trace,
+)
 from opskit.core.result import build_envelope, to_json
 from opskit.dns import api
-from opskit.dns.models import LookupResult
+from opskit.dns.models import LookupResult, TraceStep
 
 app = typer.Typer(
     name="dns", help="DNS diagnostics (lookup, reverse).", no_args_is_help=True
@@ -237,6 +242,54 @@ def _run_compare(
     return code, signature
 
 
+def _run_trace(
+    targets: Sequence[str],
+    trace_fn: Callable[[str], tuple[TraceStep, ...]],
+    *,
+    command: str,
+    as_json: bool,
+    jsonl: bool,
+    no_color: bool,
+) -> tuple[ExitCode, str]:
+    """Trace each target's resolution path; render; return (code, signature)."""
+    per_target: list[tuple[str, tuple[TraceStep, ...]]] = []
+    for target in targets:
+        try:
+            per_target.append((target, trace_fn(target)))
+        except OpskitError as error:
+            typer.echo(f"error: {error.message}", err=True)
+            return ExitCode.USAGE, ""
+    if as_json or jsonl:
+        envelopes = [
+            build_envelope(
+                command=command,
+                query={"target": target},
+                result={"trace": [step.to_dict() for step in steps]},
+                error=None,
+                elapsed_ms=0.0,
+            )
+            for target, steps in per_target
+        ]
+        if jsonl:
+            for envelope in envelopes:
+                typer.echo(to_json(envelope, indent=None))
+        elif len(envelopes) == 1:
+            typer.echo(to_json(envelopes[0]))
+        else:
+            typer.echo(json.dumps(envelopes, indent=2))
+    else:
+        console = make_console(no_color=no_color)
+        for target, steps in per_target:
+            if len(targets) > 1:
+                console.print(f"[bold];; trace {target}[/bold]")
+            render_trace(steps, console=console)
+    signature = json.dumps(
+        [[t, [s.response for s in steps]] for t, steps in per_target]
+    )
+    resolved = all(steps and steps[-1].response == "answer" for _, steps in per_target)
+    return (ExitCode.OK if resolved else ExitCode.PARTIAL), signature
+
+
 _ActionResult = tuple[ExitCode, str]
 
 
@@ -350,6 +403,13 @@ def lookup(
     jsonl: Annotated[
         bool, typer.Option("--jsonl", help="Emit one JSON envelope per line (NDJSON).")
     ] = False,
+    trace: Annotated[
+        bool,
+        typer.Option(
+            "--trace",
+            help="Show the iterative resolution path (root -> authoritative).",
+        ),
+    ] = False,
     watch: Annotated[
         Optional[str],
         typer.Option(
@@ -397,6 +457,15 @@ def lookup(
         return {"target": name, "record_types": [t.upper() for t in requested]}
 
     def action() -> _ActionResult:
+        if trace:
+            return _run_trace(
+                targets,
+                lambda name: api.trace(name, requested[0], timeout=timeout, port=port),
+                command="dns.trace",
+                as_json=as_json,
+                jsonl=jsonl,
+                no_color=no_color,
+            )
         if diff:
             return _run_compare(
                 targets,
@@ -453,6 +522,13 @@ def reverse(
     jsonl: Annotated[
         bool, typer.Option("--jsonl", help="Emit one JSON envelope per line (NDJSON).")
     ] = False,
+    trace: Annotated[
+        bool,
+        typer.Option(
+            "--trace",
+            help="Show the iterative resolution path (root -> authoritative).",
+        ),
+    ] = False,
     watch: Annotated[
         Optional[str],
         typer.Option(
@@ -484,6 +560,15 @@ def reverse(
         return {"target": ip}
 
     def action() -> _ActionResult:
+        if trace:
+            return _run_trace(
+                targets,
+                lambda ip: api.reverse_trace(ip, timeout=timeout, port=port),
+                command="dns.trace",
+                as_json=as_json,
+                jsonl=jsonl,
+                no_color=no_color,
+            )
         return _run(
             "dns.reverse",
             targets,

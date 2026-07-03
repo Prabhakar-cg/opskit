@@ -24,9 +24,10 @@ from opskit.dns.models import (
     Resolver,
     ResolverAnswer,
     ResolverComparison,
+    TraceStep,
     Transport,
 )
-from opskit.dns.resolver import DnspythonResolver, system_nameserver
+from opskit.dns.resolver import DnspythonResolver, system_nameserver, trace_resolution
 from opskit.dns.resolver import Resolver as ResolverEngine
 
 _MAX_PORT = 65535
@@ -362,3 +363,43 @@ def compare(
         answers=tuple(answers),
         consistent=_comparison_consistent(answers),
     )
+
+
+def trace(
+    name: str,
+    rtype: RecordType | str = "A",
+    *,
+    timeout: float = 5.0,
+    port: int = 53,
+) -> tuple[TraceStep, ...]:
+    """Trace the iterative resolution path of ``name`` from the root down to the answer.
+
+    Raises:
+        UsageError: For invalid input.
+    """
+    if not name or not name.strip():
+        raise UsageError("a target name is required")
+    record_type = _coerce_types([rtype])[0]
+    _validate(timeout, 0, port)
+    return trace_resolution(name, record_type, timeout=timeout, port=port)
+
+
+def reverse_trace(
+    ip: str,
+    *,
+    timeout: float = 5.0,
+    port: int = 53,
+) -> tuple[TraceStep, ...]:
+    """Trace the iterative resolution path of an IP's PTR name.
+
+    Raises:
+        UsageError: For an invalid IP.
+    """
+    if not ip or not ip.strip():
+        raise UsageError("an IP address is required")
+    try:
+        ptr_name = dns.reversename.from_address(ip.strip())
+    except (ValueError, dns.exception.SyntaxError) as exc:
+        raise UsageError(f"invalid IP address: {ip}") from exc
+    _validate(timeout, 0, port)
+    return trace_resolution(str(ptr_name), RecordType.PTR, timeout=timeout, port=port)

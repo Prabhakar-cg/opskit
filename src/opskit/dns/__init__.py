@@ -6,7 +6,14 @@ hierarchy. Failures raise; nothing here prints or exits the process.
 
 from __future__ import annotations
 
-from opskit.dns.api import compare, lookup, lookup_all, reverse
+from opskit.dns.api import (
+    compare,
+    lookup,
+    lookup_all,
+    reverse,
+    reverse_trace,
+    trace,
+)
 from opskit.dns.errors import (
     DnsError,
     DnsRefused,
@@ -24,6 +31,7 @@ from opskit.dns.models import (
     Resolver,
     ResolverAnswer,
     ResolverComparison,
+    TraceStep,
     Transport,
 )
 
@@ -42,9 +50,12 @@ __all__ = [
     "ResolverAnswer",
     "ResolverComparison",
     "ServerFailure",
+    "TraceStep",
     "Transport",
     "compare",
     "lookup",
     "lookup_all",
     "reverse",
+    "reverse_trace",
+    "trace",
 ]

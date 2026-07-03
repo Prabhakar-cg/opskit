@@ -6,7 +6,7 @@ on truncation, and normalizes rcodes/OS errors into the DNS exception hierarchy.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Protocol, cast
 
 import dns.exception
@@ -17,9 +17,14 @@ import dns.rcode
 import dns.rdata
 import dns.rdatatype
 import dns.resolver
+import dns.rrset
 
 from opskit.dns.errors import DnsError, DnsRefused, DnsTimeout, NxDomain, ServerFailure
-from opskit.dns.models import DnsRecord, RecordType, Transport
+from opskit.dns.models import DnsRecord, RecordType, TraceStep, Transport
+
+# Root server IPs (a/b/c-root) used as the entry point for iterative --trace.
+_ROOT_SERVERS = ("198.41.0.4", "199.9.14.201", "192.33.4.12")
+_MAX_TRACE_DEPTH = 15
 
 
 class Resolver(Protocol):
@@ -112,16 +117,111 @@ class DnspythonResolver:
         ) from last_exc
 
     def _extract(self, response: dns.message.Message) -> tuple[DnsRecord, ...]:
-        records: list[DnsRecord] = []
-        for rrset in response.answer:
-            type_text = dns.rdatatype.to_text(rrset.rdtype)
-            try:
-                rtype = RecordType(type_text)
-            except ValueError:
-                continue  # skip records outside our supported set (e.g. RRSIG)
-            ttl = int(rrset.ttl)
+        return _records_from(response.answer)
+
+
+def _records_from(rrsets: list[dns.rrset.RRset]) -> tuple[DnsRecord, ...]:
+    """Extract our supported records from a list of rrsets (skips unsupported types)."""
+    records: list[DnsRecord] = []
+    for rrset in rrsets:
+        type_text = dns.rdatatype.to_text(rrset.rdtype)
+        try:
+            rtype = RecordType(type_text)
+        except ValueError:
+            continue  # skip records outside our supported set (e.g. RRSIG)
+        ttl = int(rrset.ttl)
+        for item in cast("Iterable[dns.rdata.Rdata]", rrset):
+            records.append(DnsRecord(type=rtype, value=str(item.to_text()), ttl=ttl))
+    return tuple(records)
+
+
+def _referral(response: dns.message.Message) -> tuple[list[str], list[str], str]:
+    """Parse a delegation response into (NS names, glue IPs, delegated zone)."""
+    ns_names: list[str] = []
+    zone = ""
+    for rrset in response.authority:
+        if rrset.rdtype == dns.rdatatype.NS:
+            zone = str(rrset.name)
             for item in cast("Iterable[dns.rdata.Rdata]", rrset):
-                records.append(
-                    DnsRecord(type=rtype, value=str(item.to_text()), ttl=ttl)
+                ns_names.append(str(item.to_text()))
+    glue: list[str] = []
+    for rrset in response.additional:
+        if rrset.rdtype in (dns.rdatatype.A, dns.rdatatype.AAAA):
+            for item in cast("Iterable[dns.rdata.Rdata]", rrset):
+                glue.append(str(item.to_text()))
+    return ns_names, glue, zone
+
+
+def _resolve_glue(ns_name: str, timeout: float) -> str | None:
+    """Resolve an NS hostname to an address (used when a referral lacks glue)."""
+    try:
+        answer = dns.resolver.resolve(ns_name, "A", lifetime=timeout)
+    except dns.exception.DNSException:
+        return None
+    for item in cast("Iterable[dns.rdata.Rdata]", answer):
+        return str(item.to_text())
+    return None
+
+
+QueryFn = Callable[[str, dns.message.Message], dns.message.Message]
+
+
+def trace_resolution(
+    name: str,
+    rtype: RecordType,
+    *,
+    timeout: float = 5.0,
+    port: int = 53,
+    query_fn: QueryFn | None = None,
+) -> tuple[TraceStep, ...]:
+    """Iteratively resolve ``name`` from the root, recording each delegation hop.
+
+    ``query_fn`` (server, request) -> response is injectable for tests; by default it sends a
+    non-recursive UDP query to each server in turn.
+    """
+
+    def default_send(server: str, request: dns.message.Message) -> dns.message.Message:
+        return dns.query.udp(request, server, timeout=timeout, port=port)
+
+    send = query_fn or default_send
+    qname = name if name.endswith(".") else name + "."
+    servers: list[str] = list(_ROOT_SERVERS)
+    zone = "."
+    steps: list[TraceStep] = []
+    for _ in range(_MAX_TRACE_DEPTH):
+        if not servers:
+            break
+        server = servers[0]
+        request = dns.message.make_query(qname, rtype.value)
+        request.flags &= ~dns.flags.RD
+        try:
+            response = send(server, request)
+        except dns.exception.Timeout:
+            steps.append(TraceStep(server=server, zone=zone, response="error"))
+            break
+        if response.answer:
+            steps.append(
+                TraceStep(
+                    server=server,
+                    zone=zone,
+                    response="answer",
+                    records=_records_from(response.answer),
                 )
-        return tuple(records)
+            )
+            break
+        ns_names, glue, delegated = _referral(response)
+        steps.append(
+            TraceStep(
+                server=server, zone=zone, response="referral", referrals=tuple(ns_names)
+            )
+        )
+        if delegated:
+            zone = delegated
+        if glue:
+            servers = glue
+        elif ns_names:
+            resolved = _resolve_glue(ns_names[0], timeout)
+            servers = [resolved] if resolved else []
+        else:
+            servers = []
+    return tuple(steps)

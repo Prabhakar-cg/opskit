@@ -114,9 +114,9 @@ in parallel (different files, no incomplete deps). Story labels `[US1]`–`[US9]
 
 **Goal:** `--trace` shows the resolution path. **Independent test:** trace mode returns ordered `TraceStep`s alongside the answer.
 
-- [ ] T045 [P] [US8] Tests: trace steps present + ordered in `tests/integration/test_trace.py`
-- [ ] T046 [US8] Implement `--trace` capture (`TraceStep`) in `src/opskit/dns/resolver.py` + `api.py`
-- [ ] T047 [US8] Render trace in human + `--json` in `src/opskit/core/output.py`
+- [X] T045 [P] [US8] Tests: trace steps present + ordered in `tests/integration/test_trace.py`
+- [X] T046 [US8] Implement `--trace` capture (`TraceStep`) in `src/opskit/dns/resolver.py` + `api.py`
+- [X] T047 [US8] Render trace in human + `--json` in `src/opskit/core/output.py`
 
 ---
 
