@@ -27,8 +27,8 @@ in parallel (different files, no incomplete deps). Story labels `[US1]`–`[US9]
 - [X] T009 Implement typed result dataclasses (`DnsRecord`, `DnsQuery`, `LookupResult`, `Resolver`, `ResolverComparison`, `TraceStep`) with `to_dict()` and `.ok`/iteration in `src/opskit/dns/models.py`
 - [X] T010 Implement versioned JSON envelope (`schema_version`, `command`, `query`, `result`, `error`, `elapsed_ms`) + `to_json()` in `src/opskit/core/result.py`
 - [X] T011 Implement output rendering (rich human tables, `--json`, `--jsonl`; honor `NO_COLOR` + auto-plain-when-piped) in `src/opskit/core/output.py`
-- [X] T012 Implement config precedence (flags > env `OPSKIT_*` > profile > file `[default]` > built-in) + TOML load (`tomllib`/`tomli`) in `src/opskit/core/config.py`
-- [X] T013 [P] Implement bounded worker pool for batch/multi-resolver in `src/opskit/core/concurrency.py`
+- [ ] T012 Implement config precedence (flags > env `OPSKIT_*` > profile > file `[default]` > built-in) + TOML load (`tomllib`/`tomli`) in `src/opskit/core/config.py`
+- [ ] T013 [P] Implement bounded worker pool for batch/multi-resolver in `src/opskit/core/concurrency.py`
 - [X] T014 Implement injectable resolver abstraction wrapping `dnspython` in `src/opskit/dns/resolver.py`
 - [X] T015 [P] Add injected mock-resolver fixture (canned answers, every rcode, timeouts) in `tests/conftest.py`
 - [ ] T016 Add in-process loopback DNS server fixture (`dnslib`; UDP/TCP, drop, REFUSED, TC-bit, injected latency, per-resolver answers) in `tests/integration/conftest.py`
