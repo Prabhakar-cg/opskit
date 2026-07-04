@@ -10,6 +10,7 @@ from __future__ import annotations
 import typer
 
 from opskit import __version__
+from opskit.dns.cli import app as dns_app
 
 app = typer.Typer(
     name="opskit",
@@ -17,6 +18,7 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=True,
 )
+app.add_typer(dns_app, name="dns")
 
 
 def _version_callback(value: bool) -> None:
