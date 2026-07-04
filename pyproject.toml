@@ -57,9 +57,13 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pyright>=1.1.380",
-    "nox>=2024.4",
-    "pip-audit>=2.7",
-    "pre-commit>=3.7",
+    # Orchestration/audit tooling runs only on the default (3.12/3.13) CI jobs, never on the
+    # Python 3.9 test leg. Scoping them to >=3.10 keeps their transitive deps (pip-audit's
+    # requests/urllib3/msgpack, virtualenv's filelock, pip) off the 3.9 resolution, where the
+    # patched releases have dropped 3.9 support. The 3.9 test job only needs pytest & friends.
+    "nox>=2024.4; python_version >= '3.10'",
+    "pip-audit>=2.7; python_version >= '3.10'",
+    "pre-commit>=3.7; python_version >= '3.10'",
 ]
 
 [tool.hatch.version]
@@ -112,7 +116,9 @@ max-args = 9  # DNS query controls (server/transport/timeout/retries/port/…) l
 # Type checking — mypy --strict + pyright
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.10"  # mypy's minimum target; runtime support is 3.9+ (verified by the CI matrix)
+# mypy 2.x can only target >=3.10; the true 3.9 runtime floor is type-checked by pyright
+# (pythonVersion = "3.9" below) and exercised by the 3.9 leg of the CI test matrix.
+python_version = "3.10"
 strict = true
 files = ["src"]  # product code is strictly typed; tests are validated by pytest
 warn_unreachable = true
