@@ -31,6 +31,7 @@ from opskit.dns.resolver import DnspythonResolver, system_nameserver, trace_reso
 from opskit.dns.resolver import Resolver as ResolverEngine
 
 _MAX_PORT = 65535
+_TARGET_REQUIRED = "a target name is required"
 
 # The common forward record types queried by lookup_all() / `--all`. DNS `ANY` is deprecated
 # (RFC 8482), so a one-stop lookup fans out across these individually.
@@ -120,7 +121,7 @@ def lookup(
         DnsError: For resolution failures (NXDOMAIN, SERVFAIL, REFUSED, timeout, …).
     """
     if not target or not target.strip():
-        raise UsageError("a target name is required")
+        raise UsageError(_TARGET_REQUIRED)
     record_types = _coerce_types(types)
     transport_enum = _coerce_transport(transport)
     servers = _coerce_servers(server)
@@ -251,7 +252,7 @@ def lookup_all(
         DnsError: If every type fails and no records are collected (the first error).
     """
     if not target or not target.strip():
-        raise UsageError("a target name is required")
+        raise UsageError(_TARGET_REQUIRED)
     transport_enum = _coerce_transport(transport)
     servers = _coerce_servers(server)
     _validate(timeout, retries, port)
@@ -385,7 +386,7 @@ def trace(
         UsageError: For invalid input.
     """
     if not name or not name.strip():
-        raise UsageError("a target name is required")
+        raise UsageError(_TARGET_REQUIRED)
     record_type = _coerce_types([rtype])[0]
     _validate(timeout, 0, port)
     return trace_resolution(name, record_type, timeout=timeout, port=port)
