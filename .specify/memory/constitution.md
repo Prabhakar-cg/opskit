@@ -1,12 +1,16 @@
 <!--
 SYNC IMPACT REPORT
-Version change: 1.0.0 → 1.1.0
-Amended: 2026-07-02 (ratified 2026-07-01)
-Change: MINOR — added the "OpenSSF Scorecard & Best-Practices Baseline" section, codifying
-supply-chain integrity and open-source best-practice requirements distilled from the OpenSSF
-Scorecard checks and the OpenSSF Best Practices (CII) questionnaire. Solo-limited items are
-marked aspirational so they are not treated as violations. No principles removed or redefined.
-Principles (unchanged): I–X
+Version change: 1.1.0 → 1.2.0
+Amended: 2026-07-04 (ratified 2026-07-01)
+Change: MINOR — materially expanded two principles from lessons on the first category (`dns`):
+  · VII (CLI/API Parity): the exception→exit-code mapping is owned by the error types and `core`
+    stays category-agnostic (no core→category model deps; category rendering lives per category).
+  · IX (Output & Interoperability Contract): batchable commands must process every input, aggregate
+    exit codes (0 all-ok / uniform-class / else PARTIAL), and represent per-item failures in
+    `--json`/`--jsonl` (never dropped). No principles removed or redefined.
+Concrete engineering gotchas (Typer+3.9, rich escaping, OS-error normalization, dependency-fix
+hygiene, category-agnostic layout) are captured in CLAUDE.md, not here.
+Principles (unchanged set): I–X (VII and IX expanded)
 Sections:
   - Core Principles (I–X)
   - Security & Supply-Chain Requirements
@@ -77,9 +81,12 @@ pass. **Rationale:** the core purpose is one consistent tool regardless of opera
 Every capability MUST live in an importable, fully typed Python API; the CLI is a thin
 presentation client that contains no business logic. Results MUST be typed and render to both
 human-readable and JSON output; a central exception hierarchy MUST map to structured exit codes
-so no raw exception reaches the user. The library layer MUST NOT `print()` or call `sys.exit()`,
-MUST NOT hold global mutable state, and MUST ship `py.typed` (PEP 561). **Rationale:**
-embeddability and scriptability are first-class, not afterthoughts.
+so no raw exception reaches the user. The exception→exit-code mapping MUST be owned by the error
+types themselves (each declares its exit code); `core` MUST stay category-agnostic — no `core`
+dependency on a category's models, and category-specific rendering lives with its category, never in
+`core`. The library layer MUST NOT `print()` or call `sys.exit()`, MUST NOT hold global mutable
+state, and MUST ship `py.typed` (PEP 561). **Rationale:** embeddability and scriptability are
+first-class, not afterthoughts, and a clean core lets new categories ship without touching it.
 
 ### VIII. Privacy — Zero Telemetry
 opskit MUST make no network connection except the diagnostic query the user explicitly
@@ -92,9 +99,13 @@ anything from their environment.
 Every command MUST provide: a human-readable default; `--json` emitting a **versioned envelope**
 (`schema_version`, `query`, `result`, `error`, `elapsed_ms`); `--jsonl` (NDJSON) where results
 are batchable; honor `NO_COLOR` and auto-plain output when piped; and structured exit codes.
-The JSON schema MUST be published and its changes governed by Principle V. **Gate:** a test
-walks all commands and asserts these behaviors. **Rationale:** composability and automation
-require a stable, predictable contract.
+For **batchable** commands (multiple inputs via args / `--input-file` / stdin): every input MUST be
+processed (no aborting on the first failure); the process exit code is `0` only if all succeed, the
+single outcome's code if uniform, else `PARTIAL`; and `--json`/`--jsonl` MUST emit an envelope for
+**every** input including failures (`result: null`, populated `error`) — a failed item is never
+dropped from machine output. The JSON schema MUST be published and its changes governed by
+Principle V. **Gate:** a test walks all commands and asserts these behaviors. **Rationale:**
+composability and automation require a stable, predictable contract that never silently loses data.
 
 ### X. Diagnostic-Only Scope (No Misuse)
 opskit is a **read-only diagnostic/troubleshooting** tool for operators acting on their own
@@ -189,4 +200,4 @@ one is rejected or requires an explicit, documented justification.
 - **Design source of record:** `docs/PLAN.md` captures the rationale and full decision log behind
   these principles.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-07-02
+**Version**: 1.2.0 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-07-04

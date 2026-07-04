@@ -51,6 +51,47 @@ src/opskit/
   standalone pylint/black/isort/flake8.
 - Public modules/classes/functions carry Google-style docstrings (docs gate, Art. II).
 
+## Cross-cutting rules for new categories (hard-won on `dns`)
+
+Apply these from the start of every new category (`net`/`tls`/`ad`); each one cost us rework on `dns`.
+
+- **Typer + Python 3.9:** command modules (`<category>/cli.py`) MUST NOT use
+  `from __future__ import annotations`. With deferred (string) annotations, Typer drops the
+  `Annotated[..., typer.Argument/Option(...)]` metadata on 3.9 — positional args and short flags
+  silently become `--options` and every command exits 2. Keep annotations eager and write
+  `Optional[X]` (never `X | None`) in these modules. Every other module keeps future annotations.
+- **Type-checker targets:** mypy can only target `>=3.10` (`[tool.mypy] python_version = "3.10"`);
+  the real 3.9 floor is enforced by pyright (`pythonVersion = "3.9"`) **and** the 3.9 CI test leg —
+  keep both. Don't set mypy to 3.9 (it errors).
+- **Escape external strings in rich output:** any resolver/network-derived or user-supplied string
+  (record values, hostnames, server addresses, trace referrals, batch headers, **table titles**)
+  MUST pass through `rich.markup.escape()` before printing or interpolating into markup — a value
+  like `[bold]` otherwise breaks rendering or injects styling. `typer.echo` is plain text — do NOT
+  escape there.
+- **NO_COLOR:** build consoles via `make_console` and pass `no_color=None` (its default) so rich
+  honors the `NO_COLOR` env var and TTY detection; pass `True` only to *force* plain output. Never
+  pass `False` — it overrides `NO_COLOR`.
+- **Normalize OS/socket errors (Art. VI):** network code MUST catch raw `OSError`
+  (refused/unreachable) alongside the library's own timeout type and re-raise a typed error from the
+  shared hierarchy with an actionable hint. A raw `OSError` reaching the CLI is a bug.
+- **Batch + JSON contract (Art. IX):** commands taking multiple targets (args/`--input-file`/stdin)
+  MUST process every target (never abort on first failure); exit `0` only if all succeed, the single
+  outcome's code if uniform, else `7` (PARTIAL); and in `--json`/`--jsonl` emit an envelope for
+  **every** target including failures (`result: null`, `error: {...}`). Failures go to stderr only in
+  human mode — never dropped from JSON.
+- **Keep `core` category-agnostic:** `core` must not import a category's models. Each error type owns
+  its exit code (`OpskitError.exit_code`; subclasses narrow it) and `exit_code_for` just reads it —
+  no isinstance ladders in `core`. Category rendering lives in `<category>/output.py`;
+  `core/output.py` holds only the generic `make_console`.
+- **Security-fix hygiene:** fix vulnerable deps surgically. Prefer scoping the offending dev tool
+  (e.g. `pip-audit`/`nox`/`pre-commit`) with a `; python_version >= '3.10'` marker — their patched
+  releases dropped 3.9 and they don't run on the 3.9 test leg — over a blanket `uv lock --upgrade`,
+  which drags in unrelated major runtime/tooling bumps. The shipped wheel's runtime deps stay clean;
+  dev-only 3.9 residuals with no 3.9-compatible fix (e.g. `pytest`) are acceptable/dismissable.
+- **Test gotcha (CodeQL):** don't assert `"<host.tld>" in output` — CodeQL's
+  `py/incomplete-url-substring-sanitization` flags it as a URL-host check. Assert on record
+  values / IPs / non-hostname substrings instead.
+
 ## Testing
 
 - `pytest` (+ Hypothesis for parsers); coverage **≥ 90%** (`--cov-fail-under=90`).
