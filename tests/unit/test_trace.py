@@ -88,6 +88,26 @@ def test_cli_trace_json(monkeypatch):
     assert len(payload["result"]["trace"]) == 2
 
 
+def test_cli_all_with_trace_rejected():
+    result = runner.invoke(app, ["dns", "lookup", "example.com", "--all", "--trace"])
+    assert result.exit_code == 2  # --all + --trace is a usage error
+
+
+def test_cli_trace_batch_partial(monkeypatch, tmp_path):
+    def fake(name, *a, **k):
+        if name == "bad.com":
+            raise UsageError("boom")
+        return _steps()
+
+    monkeypatch.setattr("opskit.dns.cli.api.trace", fake)
+    hosts = tmp_path / "hosts.txt"
+    hosts.write_text("good.com\nbad.com\n")
+    result = runner.invoke(app, ["dns", "lookup", "--trace", "-i", str(hosts)])
+    # good.com still traced and rendered; bad.com failed → PARTIAL.
+    assert result.exit_code == 7
+    assert "93.184.216.34" in result.stdout
+
+
 def test_cli_reverse_trace(monkeypatch):
     steps = (
         TraceStep(

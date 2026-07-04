@@ -109,11 +109,17 @@ class DnspythonResolver:
                 if transport is Transport.AUTO and (response.flags & dns.flags.TC):
                     return dns.query.tcp(request, server, timeout=timeout, port=port)
                 return response
-            except dns.exception.Timeout as exc:
+            except (dns.exception.Timeout, OSError) as exc:
+                # Timeouts are retried; raw socket errors (refused/unreachable) also land here.
                 last_exc = exc
-        raise DnsTimeout(
-            f"no response from {server} within {timeout}s",
-            hint="the resolver may be filtered; try --transport tcp or a different --server",
+        if last_exc is None or isinstance(last_exc, dns.exception.Timeout):
+            raise DnsTimeout(
+                f"no response from {server} within {timeout}s",
+                hint="the resolver may be filtered; try --transport tcp or a different --server",
+            ) from last_exc
+        raise ServerFailure(
+            f"cannot reach {server} on port {port}: {last_exc}",
+            hint="check the --server address and --port, or that the resolver is reachable",
         ) from last_exc
 
     def _extract(self, response: dns.message.Message) -> tuple[DnsRecord, ...]:
@@ -153,13 +159,17 @@ def _referral(response: dns.message.Message) -> tuple[list[str], list[str], str]
 
 
 def _resolve_glue(ns_name: str, timeout: float) -> str | None:
-    """Resolve an NS hostname to an address (used when a referral lacks glue)."""
-    try:
-        answer = dns.resolver.resolve(ns_name, "A", lifetime=timeout)
-    except dns.exception.DNSException:
-        return None
-    for item in cast("Iterable[dns.rdata.Rdata]", answer):
-        return str(item.to_text())
+    """Resolve an NS hostname to an address (used when a referral lacks glue).
+
+    Tries A then AAAA so IPv6-only or dual-stack NS hosts are not missed.
+    """
+    for family in ("A", "AAAA"):
+        try:
+            answer = dns.resolver.resolve(ns_name, family, lifetime=timeout)
+        except dns.exception.DNSException:
+            continue
+        for item in cast("Iterable[dns.rdata.Rdata]", answer):
+            return str(item.to_text())
     return None
 
 
@@ -181,7 +191,11 @@ def trace_resolution(
     """
 
     def default_send(server: str, request: dns.message.Message) -> dns.message.Message:
-        return dns.query.udp(request, server, timeout=timeout, port=port)
+        # Fall back to TCP when the UDP answer is truncated so large referrals aren't lost.
+        response, _ = dns.query.udp_with_fallback(
+            request, server, timeout=timeout, port=port
+        )
+        return response
 
     send = query_fn or default_send
     qname = name if name.endswith(".") else name + "."

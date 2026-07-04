@@ -10,21 +10,24 @@ from collections import Counter
 from collections.abc import Sequence
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from opskit.dns.models import (
     DnsRecord,
     Outcome,
-    RecordType,
-    ResolverAnswer,
     ResolverComparison,
     TraceStep,
 )
 
 
 def make_console(*, no_color: bool = False) -> Console:
-    """Return a console configured for the current output context."""
-    return Console(no_color=no_color, highlight=False)
+    """Return a console configured for the current output context.
+
+    ``no_color`` forces plain output when set; when unset, ``Console`` is left to its default
+    (which honors the ``NO_COLOR`` environment variable and auto-detects a non-TTY).
+    """
+    return Console(no_color=True if no_color else None, highlight=False)
 
 
 def render_records(records: Sequence[DnsRecord], *, console: Console) -> None:
@@ -37,14 +40,8 @@ def render_records(records: Sequence[DnsRecord], *, console: Console) -> None:
     table.add_column("VALUE")
     table.add_column("TTL", justify="right")
     for record in records:
-        table.add_row(record.type.value, record.value, str(record.ttl))
+        table.add_row(record.type.value, escape(record.value), str(record.ttl))
     console.print(table)
-
-
-def _answer_signature(
-    answer: ResolverAnswer,
-) -> tuple[Outcome, frozenset[tuple[RecordType, str]]]:
-    return (answer.outcome, frozenset((r.type, r.value) for r in answer.records))
 
 
 def render_comparison(comparison: ResolverComparison, *, console: Console) -> None:
@@ -59,15 +56,16 @@ def render_comparison(comparison: ResolverComparison, *, console: Console) -> No
     table.add_column("RESOLVER")
     table.add_column("OUTCOME")
     table.add_column("RECORDS / ERROR")
-    signatures = [_answer_signature(a) for a in comparison.answers]
+    signatures = [a.signature() for a in comparison.answers]
     majority = Counter(signatures).most_common(1)[0][0] if signatures else None
     for answer, signature in zip(comparison.answers, signatures):
-        lines = [f"{r.type.value}  {r.value}  (ttl {r.ttl})" for r in answer.records]
-        cell = "\n".join(lines) if lines else (answer.error or "—")
+        lines = [
+            f"{r.type.value}  {escape(r.value)}  (ttl {r.ttl})" for r in answer.records
+        ]
+        cell = "\n".join(lines) if lines else escape(answer.error or "—")
         differs = not comparison.consistent and signature != majority
-        resolver = (
-            f"[yellow]{answer.server}  ⚠ differs[/yellow]" if differs else answer.server
-        )
+        server = escape(answer.server)
+        resolver = f"[yellow]{server}  ⚠ differs[/yellow]" if differs else server
         outcome = (
             answer.outcome.value
             if answer.outcome is Outcome.OK
@@ -86,13 +84,14 @@ def render_trace(steps: Sequence[TraceStep], *, console: Console) -> None:
     table.add_column("RESULT")
     for index, step in enumerate(steps, start=1):
         if step.response == "answer":
-            records = "\n".join(f"{r.type.value}  {r.value}" for r in step.records)
+            records = "\n".join(
+                f"{r.type.value}  {escape(r.value)}" for r in step.records
+            )
             detail = records or "(answer)"
         elif step.response == "referral":
-            detail = (
-                "-> " + ", ".join(step.referrals) if step.referrals else "-> (referral)"
-            )
+            referrals = ", ".join(escape(r) for r in step.referrals)
+            detail = "-> " + referrals if referrals else "-> (referral)"
         else:
             detail = "(no response)"
-        table.add_row(str(index), step.server, step.zone, detail)
+        table.add_row(str(index), escape(step.server), escape(step.zone), detail)
     console.print(table)

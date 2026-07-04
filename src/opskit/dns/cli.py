@@ -3,9 +3,13 @@
 Holds no business logic — it maps options onto :mod:`opskit.dns.api` and turns typed
 results/exceptions into human or JSON output and structured exit codes. Supports bulk targets
 via a positional argument and/or ``--input-file`` (one target per line, ``#`` comments allowed).
-"""
 
-from __future__ import annotations
+.. note::
+   This module intentionally does **not** use ``from __future__ import annotations``. Typer reads
+   the ``Annotated[...]`` metadata off the concrete annotation objects; deferring them to strings
+   (PEP 563) makes Typer silently drop the ``Argument``/``Option`` metadata on Python 3.9, turning
+   positional arguments into ``--options``. Keep annotations eager here.
+"""
 
 import json
 import time
@@ -15,6 +19,7 @@ from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import typer
+from rich.markup import escape
 
 from opskit.core.errors import OpskitError, UsageError
 from opskit.core.exit_codes import ExitCode, exit_code_for
@@ -26,7 +31,7 @@ from opskit.core.output import (
 )
 from opskit.core.result import build_envelope, to_json
 from opskit.dns import api
-from opskit.dns.models import LookupResult, TraceStep
+from opskit.dns.models import LookupResult, ResolverComparison, TraceStep
 
 app = typer.Typer(
     name="dns", help="DNS diagnostics (lookup, reverse).", no_args_is_help=True
@@ -70,7 +75,9 @@ def _read_input_file(path: Path) -> list[str]:
     return targets
 
 
-def _collect_targets(positional: str | None, input_file: Path | None) -> list[str]:
+def _collect_targets(
+    positional: Optional[str], input_file: Optional[Path]
+) -> list[str]:
     """Combine a positional target with any from ``--input-file`` (positional first)."""
     targets: list[str] = []
     if positional:
@@ -98,8 +105,8 @@ def _aggregate_exit(outcomes: Sequence[_Outcome]) -> ExitCode:
 def _envelope(
     command: str,
     target: str,
-    result: LookupResult | None,
-    error: OpskitError | None,
+    result: Optional[LookupResult],
+    error: Optional[OpskitError],
     error_query: Callable[[str], dict[str, Any]],
 ) -> dict[str, Any]:
     if result is not None:
@@ -140,7 +147,7 @@ def _render_human(outcomes: Sequence[_Outcome], *, batch: bool, no_color: bool) 
     console = make_console(no_color=no_color)
     for target, result, error in outcomes:
         if batch:
-            console.print(f"[bold];; {target}[/bold]")
+            console.print(f"[bold];; {escape(target)}[/bold]")
         if error is not None:
             message = f"error: {error.message}"
             if error.hint:
@@ -199,22 +206,30 @@ def _run_compare(
     jsonl: bool,
     no_color: bool,
 ) -> tuple[ExitCode, str]:
-    """Compare each target across the given resolvers; render; return (code, signature)."""
-    try:
-        comparisons = [
-            api.compare(
-                target,
-                list(servers),
-                types,
-                transport=transport,
-                timeout=timeout,
-                retries=retries,
-                port=port,
+    """Compare each target across the given resolvers; render; return (code, signature).
+
+    Per-target failures don't abort the batch: successful comparisons are still rendered, and the
+    exit code degrades to PARTIAL when any target failed (USAGE only when none succeeded).
+    """
+    comparisons: list[ResolverComparison] = []
+    had_error = False
+    for target in targets:
+        try:
+            comparisons.append(
+                api.compare(
+                    target,
+                    list(servers),
+                    types,
+                    transport=transport,
+                    timeout=timeout,
+                    retries=retries,
+                    port=port,
+                )
             )
-            for target in targets
-        ]
-    except OpskitError as error:
-        typer.echo(f"error: {error.message}", err=True)
+        except OpskitError as error:
+            had_error = True
+            typer.echo(f"error: {target}: {error.message}", err=True)
+    if not comparisons:
         return ExitCode.USAGE, ""
 
     if as_json or jsonl:
@@ -258,7 +273,8 @@ def _run_compare(
             for c in comparisons
         ]
     )
-    code = ExitCode.OK if all(c.consistent for c in comparisons) else ExitCode.PARTIAL
+    consistent = all(c.consistent for c in comparisons)
+    code = ExitCode.OK if consistent and not had_error else ExitCode.PARTIAL
     return code, signature
 
 
@@ -271,14 +287,21 @@ def _run_trace(
     jsonl: bool,
     no_color: bool,
 ) -> tuple[ExitCode, str]:
-    """Trace each target's resolution path; render; return (code, signature)."""
+    """Trace each target's resolution path; render; return (code, signature).
+
+    Per-target failures don't abort the batch: successful traces are still rendered, and the exit
+    code degrades to PARTIAL when any target failed (USAGE only when none succeeded).
+    """
     per_target: list[tuple[str, tuple[TraceStep, ...]]] = []
+    had_error = False
     for target in targets:
         try:
             per_target.append((target, trace_fn(target)))
         except OpskitError as error:
-            typer.echo(f"error: {error.message}", err=True)
-            return ExitCode.USAGE, ""
+            had_error = True
+            typer.echo(f"error: {target}: {error.message}", err=True)
+    if not per_target:
+        return ExitCode.USAGE, ""
     if as_json or jsonl:
         envelopes = [
             build_envelope(
@@ -301,13 +324,14 @@ def _run_trace(
         console = make_console(no_color=no_color)
         for target, steps in per_target:
             if len(targets) > 1:
-                console.print(f"[bold];; trace {target}[/bold]")
+                console.print(f"[bold];; trace {escape(target)}[/bold]")
             render_trace(steps, console=console)
     signature = json.dumps(
         [[t, [s.response for s in steps]] for t, steps in per_target]
     )
     resolved = all(steps and steps[-1].response == "answer" for _, steps in per_target)
-    return (ExitCode.OK if resolved else ExitCode.PARTIAL), signature
+    code = ExitCode.OK if resolved and not had_error else ExitCode.PARTIAL
+    return code, signature
 
 
 _ActionResult = tuple[ExitCode, str]
@@ -340,7 +364,7 @@ def _watch(
 ) -> ExitCode:
     """Re-run ``action`` every ``interval`` seconds until interrupted, flagging changes."""
     console = make_console(no_color=no_color)
-    previous: str | None = None
+    previous: Optional[str] = None
     code = ExitCode.OK
     try:
         while True:
@@ -362,7 +386,7 @@ def _watch(
 
 
 def _run_or_watch(
-    action: Callable[[], _ActionResult], *, watch: str | None, no_color: bool
+    action: Callable[[], _ActionResult], *, watch: Optional[str], no_color: bool
 ) -> None:
     """Run ``action`` once, or repeatedly under --watch; then exit with its code."""
     if watch is not None:
@@ -487,6 +511,15 @@ def lookup(
         typer.echo(f"error: {error.message}", err=True)
         raise typer.Exit(int(ExitCode.USAGE)) from error
 
+    if all_types and trace:
+        typer.echo(
+            "error: --all cannot be combined with --trace (a trace follows one record type)",
+            err=True,
+        )
+        raise typer.Exit(int(ExitCode.USAGE))
+    # --all fans out over every common type; --diff honors it, --trace is rejected above.
+    compare_types = [t.value for t in api.ALL_RECORD_TYPES] if all_types else requested
+
     def run_one(name: str) -> LookupResult:
         if all_types:
             return api.lookup_all(
@@ -529,7 +562,7 @@ def lookup(
             return _run_compare(
                 targets,
                 server or [],
-                requested,
+                compare_types,
                 transport=transport,
                 timeout=timeout,
                 retries=retries,

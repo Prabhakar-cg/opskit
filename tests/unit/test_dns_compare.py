@@ -138,3 +138,29 @@ def test_cli_diff_needs_two_servers():
         app, ["dns", "lookup", "example.com", "--diff", "-s", "1.1.1.1"]
     )
     assert result.exit_code == 2  # UsageError → USAGE
+
+
+def test_cli_diff_batch_partial(monkeypatch, tmp_path):
+    def fake(target, servers, types, **kw):
+        if target == "bad.com":
+            raise UsageError("boom")
+        answers = (
+            ResolverAnswer(
+                "1.1.1.1", Outcome.OK, (DnsRecord(RecordType.A, "1.2.3.4", 300),)
+            ),
+            ResolverAnswer(
+                "8.8.8.8", Outcome.OK, (DnsRecord(RecordType.A, "1.2.3.4", 300),)
+            ),
+        )
+        return ResolverComparison(target, (RecordType.A,), answers, consistent=True)
+
+    monkeypatch.setattr("opskit.dns.cli.api.compare", fake)
+    hosts = tmp_path / "hosts.txt"
+    hosts.write_text("good.com\nbad.com\n")
+    result = runner.invoke(
+        app,
+        ["dns", "lookup", "--diff", "-s", "1.1.1.1", "-s", "8.8.8.8", "-i", str(hosts)],
+    )
+    # One target failed but the other still rendered → PARTIAL, not an aborted USAGE.
+    assert result.exit_code == 7
+    assert "good.com" in result.stdout

@@ -96,3 +96,13 @@ def test_timeout_after_retries(monkeypatch):
     monkeypatch.setattr("dns.query.udp", _raise)
     with pytest.raises(DnsTimeout):
         _run(DnspythonResolver())
+
+
+def test_os_error_becomes_server_failure(monkeypatch):
+    def _raise(*a, **k):
+        raise ConnectionRefusedError(111, "Connection refused")
+
+    monkeypatch.setattr("dns.query.udp", _raise)
+    with pytest.raises(ServerFailure) as excinfo:
+        _run(DnspythonResolver())
+    assert excinfo.value.hint  # actionable guidance is surfaced

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 
 class RecordType(str, Enum):
@@ -135,7 +135,7 @@ class TraceStep:
 
     server: str
     zone: str
-    response: str  # "referral" | "answer" | "error"
+    response: Literal["referral", "answer", "error"]
     referrals: tuple[str, ...] = ()
     records: tuple[DnsRecord, ...] = ()
 
@@ -159,6 +159,10 @@ class ResolverAnswer:
     records: tuple[DnsRecord, ...] = ()
     error: str | None = None
     elapsed_ms: float = 0.0
+
+    def signature(self) -> tuple[Outcome, frozenset[tuple[RecordType, str]]]:
+        """Identity for agreement checks: outcome + record set, ignoring TTLs and order."""
+        return (self.outcome, frozenset((r.type, r.value) for r in self.records))
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable mapping of this resolver's answer."""

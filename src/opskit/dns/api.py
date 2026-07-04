@@ -301,11 +301,7 @@ def _outcome_for(error: DnsError) -> Outcome:
 
 def _comparison_consistent(answers: Sequence[ResolverAnswer]) -> bool:
     """True when every resolver returned the same outcome and record set (TTL ignored)."""
-    signatures = {
-        (answer.outcome, frozenset((r.type, r.value) for r in answer.records))
-        for answer in answers
-    }
-    return len(signatures) == 1
+    return len({answer.signature() for answer in answers}) == 1
 
 
 def compare(
