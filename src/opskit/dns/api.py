@@ -92,6 +92,7 @@ def _validate(timeout: float, retries: int, port: int) -> None:
 def _prepare(
     target: str,
     record_types: tuple[RecordType, ...],
+    *,
     server: str | Sequence[str] | None,
     transport: Transport | str,
     timeout: float,
@@ -202,7 +203,14 @@ def lookup(
         raise UsageError(_TARGET_REQUIRED)
     record_types = _coerce_types(types)
     engine, server_addr, query = _prepare(
-        target, record_types, server, transport, timeout, retries, port, resolver
+        target,
+        record_types,
+        server=server,
+        transport=transport,
+        timeout=timeout,
+        retries=retries,
+        port=port,
+        resolver=resolver,
     )
     start = time.perf_counter()
     records = _query_types(engine, target, record_types, server_addr, query)
@@ -235,7 +243,14 @@ def reverse(
     except (ValueError, dns.exception.SyntaxError) as exc:
         raise UsageError(f"invalid IP address: {ip}") from exc
     engine, server_addr, query = _prepare(
-        ip, (RecordType.PTR,), server, transport, timeout, retries, port, resolver
+        ip,
+        (RecordType.PTR,),
+        server=server,
+        transport=transport,
+        timeout=timeout,
+        retries=retries,
+        port=port,
+        resolver=resolver,
     )
     start = time.perf_counter()
     records = engine.query(
@@ -273,7 +288,14 @@ def lookup_all(
     if not target or not target.strip():
         raise UsageError(_TARGET_REQUIRED)
     engine, server_addr, query = _prepare(
-        target, ALL_RECORD_TYPES, server, transport, timeout, retries, port, resolver
+        target,
+        ALL_RECORD_TYPES,
+        server=server,
+        transport=transport,
+        timeout=timeout,
+        retries=retries,
+        port=port,
+        resolver=resolver,
     )
     start = time.perf_counter()
     records = _query_types(engine, target, ALL_RECORD_TYPES, server_addr, query)
