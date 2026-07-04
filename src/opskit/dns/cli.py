@@ -23,15 +23,11 @@ from rich.markup import escape
 
 from opskit.core.errors import OpskitError, UsageError
 from opskit.core.exit_codes import ExitCode, exit_code_for
-from opskit.core.output import (
-    make_console,
-    render_comparison,
-    render_records,
-    render_trace,
-)
+from opskit.core.output import make_console
 from opskit.core.result import build_envelope, to_json
 from opskit.dns import api
 from opskit.dns.models import LookupResult, ResolverComparison, TraceStep
+from opskit.dns.output import render_comparison, render_records, render_trace
 
 app = typer.Typer(
     name="dns", help="DNS diagnostics (lookup, reverse).", no_args_is_help=True

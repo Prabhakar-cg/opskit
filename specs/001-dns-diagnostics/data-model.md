@@ -9,8 +9,9 @@ No persistence beyond the TOML profile store.
 - **RecordType**: `A`, `AAAA`, `MX`, `TXT`, `CNAME`, `NS`, `SOA`, `SRV`, `CAA`, `PTR`.
 - **Transport**: `AUTO` (UDP then TCP on truncation), `UDP`, `TCP`.
 - **Outcome**: `OK`, `NXDOMAIN`, `SERVFAIL`, `REFUSED`, `TIMEOUT`, `USAGE_ERROR`.
-- **ExitCode** (`core/exit_codes.py`): `OK=0`, `USAGE=2`, `NXDOMAIN=3`, `SERVFAIL=4`, `REFUSED=5`,
-  `TIMEOUT=6`, `PARTIAL=7` (batch: some targets failed).
+- **ExitCode** (`core/exit_codes.py`): `OK=0`, `ERROR=1` (generic/uncategorized), `USAGE=2`,
+  `NXDOMAIN=3`, `SERVFAIL=4`, `REFUSED=5`, `TIMEOUT=6`, `PARTIAL=7` (batch: some targets failed).
+  Each error type owns its code (`OpskitError.exit_code`), so `core` stays category-agnostic.
 
 ## Entities
 

@@ -139,18 +139,29 @@ def lookup(
     )
     start = time.perf_counter()
     records: list[DnsRecord] = []
+    first_error: DnsError | None = None
     for rtype in record_types:
-        records.extend(
-            engine.query(
-                target,
-                rtype,
-                server=server_addr,
-                transport=transport_enum,
-                timeout=timeout,
-                retries=retries,
-                port=port,
+        try:
+            records.extend(
+                engine.query(
+                    target,
+                    rtype,
+                    server=server_addr,
+                    transport=transport_enum,
+                    timeout=timeout,
+                    retries=retries,
+                    port=port,
+                )
             )
-        )
+        except NxDomain:
+            raise  # NXDOMAIN is name-level: the name does not exist for any type.
+        except DnsError as exc:
+            # One type failing (e.g. a resolver that refuses TXT) shouldn't discard the
+            # records other types returned; surface a failure only if nothing resolves.
+            if first_error is None:
+                first_error = exc
+    if not records and first_error is not None:
+        raise first_error
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     return LookupResult(
         query=query,

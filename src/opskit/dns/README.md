@@ -166,6 +166,7 @@ Exit codes are documented and scriptable:
 | Code | Meaning |
 |---|---|
 | `0` | success |
+| `1` | generic error (uncategorized failure) |
 | `2` | usage error (bad input; before any network) |
 | `3` | NXDOMAIN (name does not exist) |
 | `4` | SERVFAIL |

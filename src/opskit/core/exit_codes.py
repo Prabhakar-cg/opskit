@@ -7,14 +7,17 @@ can branch on the outcome class without parsing text.
 from __future__ import annotations
 
 from enum import IntEnum
+from typing import TYPE_CHECKING
 
-from opskit.core.errors import OpskitError, UsageError
+if TYPE_CHECKING:
+    from opskit.core.errors import OpskitError
 
 
 class ExitCode(IntEnum):
     """Documented exit codes returned by the CLI."""
 
     OK = 0
+    ERROR = 1
     USAGE = 2
     NXDOMAIN = 3
     SERVFAIL = 4
@@ -24,26 +27,9 @@ class ExitCode(IntEnum):
 
 
 def exit_code_for(error: OpskitError) -> ExitCode:
-    """Map an :class:`OpskitError` to its :class:`ExitCode`.
+    """Return the :class:`ExitCode` an error declares.
 
-    Imported lazily to avoid a core→dns import cycle.
+    Each error type owns its ``exit_code`` (set on the class), so this mapping stays
+    category-agnostic — adding a new category (net/tls/ad) never touches ``core``.
     """
-    from opskit.dns.errors import (  # noqa: PLC0415
-        DnsError,
-        DnsRefused,
-        DnsTimeout,
-        NxDomain,
-    )
-
-    if isinstance(error, UsageError):
-        return ExitCode.USAGE
-    if isinstance(error, NxDomain):
-        return ExitCode.NXDOMAIN
-    if isinstance(error, DnsRefused):
-        return ExitCode.REFUSED
-    if isinstance(error, DnsTimeout):
-        return ExitCode.TIMEOUT
-    if isinstance(error, DnsError):
-        # ServerFailure, DnssecError, and any other DNS failure.
-        return ExitCode.SERVFAIL
-    return ExitCode.USAGE
+    return error.exit_code

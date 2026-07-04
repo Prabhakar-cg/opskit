@@ -56,6 +56,32 @@ def test_lookup_propagates_dns_errors(make_resolver, error):
         lookup("example.com", ["A"], server="127.0.0.1", resolver=resolver)
 
 
+def test_lookup_multitype_keeps_records_when_one_type_fails(make_resolver):
+    resolver = make_resolver(
+        records={RecordType.A: [DnsRecord(RecordType.A, "1.2.3.4", 300)]},
+        errors={RecordType.MX: ServerFailure("mx failed")},
+    )
+    result = lookup("example.com", ["A", "MX"], server="127.0.0.1", resolver=resolver)
+    assert [r.value for r in result.records] == ["1.2.3.4"]
+
+
+def test_lookup_multitype_raises_when_all_types_fail(make_resolver):
+    resolver = make_resolver(
+        errors={
+            RecordType.A: ServerFailure("a failed"),
+            RecordType.MX: ServerFailure("mx failed"),
+        }
+    )
+    with pytest.raises(ServerFailure):
+        lookup("example.com", ["A", "MX"], server="127.0.0.1", resolver=resolver)
+
+
+def test_lookup_multitype_nxdomain_still_raises(make_resolver):
+    resolver = make_resolver(errors={RecordType.A: NxDomain("nope")})
+    with pytest.raises(NxDomain):
+        lookup("example.com", ["A", "MX"], server="127.0.0.1", resolver=resolver)
+
+
 def test_lookup_rejects_unknown_type(make_resolver):
     with pytest.raises(UsageError):
         lookup("example.com", ["ZZZ"], resolver=make_resolver())

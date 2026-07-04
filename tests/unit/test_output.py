@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from opskit.core.output import make_console, render_records
+from opskit.core.output import make_console
 from opskit.dns.models import DnsRecord, RecordType
+from opskit.dns.output import render_records
 
 
 def test_render_records_escapes_markup():

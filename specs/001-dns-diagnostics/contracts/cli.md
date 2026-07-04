@@ -40,6 +40,7 @@ Human output is colorized/tabular on a TTY and auto-plain when piped.
 | Code | Meaning |
 |------|---------|
 | 0 | success |
+| 1 | generic error (uncategorized failure) |
 | 2 | usage error (bad args/input; before network) |
 | 3 | NXDOMAIN (name does not exist) |
 | 4 | SERVFAIL |
