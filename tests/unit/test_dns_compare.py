@@ -162,5 +162,7 @@ def test_cli_diff_batch_partial(monkeypatch, tmp_path):
         ["dns", "lookup", "--diff", "-s", "1.1.1.1", "-s", "8.8.8.8", "-i", str(hosts)],
     )
     # One target failed but the other still rendered → PARTIAL, not an aborted USAGE.
+    # Assert on the good target's rendered record (not the hostname) to keep the check
+    # unambiguous and avoid a URL-substring false positive.
     assert result.exit_code == 7
-    assert "good.com" in result.stdout
+    assert "1.2.3.4" in result.stdout
