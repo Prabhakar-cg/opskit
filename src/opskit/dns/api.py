@@ -89,6 +89,85 @@ def _validate(timeout: float, retries: int, port: int) -> None:
         raise UsageError(f"port must be between 1 and {_MAX_PORT}")
 
 
+def _prepare(
+    target: str,
+    record_types: tuple[RecordType, ...],
+    *,
+    server: str | Sequence[str] | None,
+    transport: Transport | str,
+    timeout: float,
+    retries: int,
+    port: int,
+    resolver: ResolverEngine | None,
+) -> tuple[ResolverEngine, str, DnsQuery]:
+    """Coerce/validate controls and build the (engine, server address, query) shared by lookups."""
+    transport_enum = _coerce_transport(transport)
+    servers = _coerce_servers(server)
+    _validate(timeout, retries, port)
+    server_addr = servers[0] if servers else system_nameserver()
+    engine: ResolverEngine = resolver if resolver is not None else DnspythonResolver()
+    query = DnsQuery(
+        target=target,
+        record_types=record_types,
+        servers=servers,
+        transport=transport_enum,
+        timeout_s=timeout,
+        retries=retries,
+        port=port,
+    )
+    return engine, server_addr, query
+
+
+def _query_types(
+    engine: ResolverEngine,
+    target: str,
+    record_types: Sequence[RecordType],
+    server_addr: str,
+    query: DnsQuery,
+) -> list[DnsRecord]:
+    """Query each record type, tolerating per-type failures.
+
+    Records from the types that answer are aggregated; a failure is surfaced only when nothing
+    resolves. NXDOMAIN is name-level and always propagates.
+    """
+    records: list[DnsRecord] = []
+    first_error: DnsError | None = None
+    for rtype in record_types:
+        try:
+            records.extend(
+                engine.query(
+                    target,
+                    rtype,
+                    server=server_addr,
+                    transport=query.transport,
+                    timeout=query.timeout_s,
+                    retries=query.retries,
+                    port=query.port,
+                )
+            )
+        except NxDomain:
+            raise
+        except DnsError as exc:
+            if first_error is None:
+                first_error = exc
+    if not records and first_error is not None:
+        raise first_error
+    return records
+
+
+def _finish(
+    query: DnsQuery, server_addr: str, records: Sequence[DnsRecord], start: float
+) -> LookupResult:
+    """Assemble a LookupResult from collected records and the elapsed time."""
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    return LookupResult(
+        query=query,
+        resolver=Resolver(address=server_addr),
+        records=tuple(records),
+        elapsed_ms=elapsed_ms,
+    )
+
+
 def lookup(
     target: str,
     types: Sequence[RecordType | str] = ("A",),
@@ -123,53 +202,19 @@ def lookup(
     if not target or not target.strip():
         raise UsageError(_TARGET_REQUIRED)
     record_types = _coerce_types(types)
-    transport_enum = _coerce_transport(transport)
-    servers = _coerce_servers(server)
-    _validate(timeout, retries, port)
-
-    server_addr = servers[0] if servers else system_nameserver()
-    engine: ResolverEngine = resolver if resolver is not None else DnspythonResolver()
-    query = DnsQuery(
-        target=target,
-        record_types=record_types,
-        servers=servers,
-        transport=transport_enum,
-        timeout_s=timeout,
+    engine, server_addr, query = _prepare(
+        target,
+        record_types,
+        server=server,
+        transport=transport,
+        timeout=timeout,
         retries=retries,
         port=port,
+        resolver=resolver,
     )
     start = time.perf_counter()
-    records: list[DnsRecord] = []
-    first_error: DnsError | None = None
-    for rtype in record_types:
-        try:
-            records.extend(
-                engine.query(
-                    target,
-                    rtype,
-                    server=server_addr,
-                    transport=transport_enum,
-                    timeout=timeout,
-                    retries=retries,
-                    port=port,
-                )
-            )
-        except NxDomain:
-            raise  # NXDOMAIN is name-level: the name does not exist for any type.
-        except DnsError as exc:
-            # One type failing (e.g. a resolver that refuses TXT) shouldn't discard the
-            # records other types returned; surface a failure only if nothing resolves.
-            if first_error is None:
-                first_error = exc
-    if not records and first_error is not None:
-        raise first_error
-    elapsed_ms = (time.perf_counter() - start) * 1000.0
-    return LookupResult(
-        query=query,
-        resolver=Resolver(address=server_addr),
-        records=tuple(records),
-        elapsed_ms=elapsed_ms,
-    )
+    records = _query_types(engine, target, record_types, server_addr, query)
+    return _finish(query, server_addr, records, start)
 
 
 def reverse(
@@ -197,38 +242,27 @@ def reverse(
         ptr_name = dns.reversename.from_address(ip.strip())
     except (ValueError, dns.exception.SyntaxError) as exc:
         raise UsageError(f"invalid IP address: {ip}") from exc
-    transport_enum = _coerce_transport(transport)
-    servers = _coerce_servers(server)
-    _validate(timeout, retries, port)
-
-    server_addr = servers[0] if servers else system_nameserver()
-    engine: ResolverEngine = resolver if resolver is not None else DnspythonResolver()
-    query = DnsQuery(
-        target=ip,
-        record_types=(RecordType.PTR,),
-        servers=servers,
-        transport=transport_enum,
-        timeout_s=timeout,
+    engine, server_addr, query = _prepare(
+        ip,
+        (RecordType.PTR,),
+        server=server,
+        transport=transport,
+        timeout=timeout,
         retries=retries,
         port=port,
+        resolver=resolver,
     )
     start = time.perf_counter()
     records = engine.query(
         str(ptr_name),
         RecordType.PTR,
         server=server_addr,
-        transport=transport_enum,
-        timeout=timeout,
-        retries=retries,
-        port=port,
+        transport=query.transport,
+        timeout=query.timeout_s,
+        retries=query.retries,
+        port=query.port,
     )
-    elapsed_ms = (time.perf_counter() - start) * 1000.0
-    return LookupResult(
-        query=query,
-        resolver=Resolver(address=server_addr),
-        records=tuple(records),
-        elapsed_ms=elapsed_ms,
-    )
+    return _finish(query, server_addr, records, start)
 
 
 def lookup_all(
@@ -253,51 +287,19 @@ def lookup_all(
     """
     if not target or not target.strip():
         raise UsageError(_TARGET_REQUIRED)
-    transport_enum = _coerce_transport(transport)
-    servers = _coerce_servers(server)
-    _validate(timeout, retries, port)
-
-    server_addr = servers[0] if servers else system_nameserver()
-    engine: ResolverEngine = resolver if resolver is not None else DnspythonResolver()
-    query = DnsQuery(
-        target=target,
-        record_types=ALL_RECORD_TYPES,
-        servers=servers,
-        transport=transport_enum,
-        timeout_s=timeout,
+    engine, server_addr, query = _prepare(
+        target,
+        ALL_RECORD_TYPES,
+        server=server,
+        transport=transport,
+        timeout=timeout,
         retries=retries,
         port=port,
+        resolver=resolver,
     )
     start = time.perf_counter()
-    records: list[DnsRecord] = []
-    first_error: DnsError | None = None
-    for rtype in ALL_RECORD_TYPES:
-        try:
-            records.extend(
-                engine.query(
-                    target,
-                    rtype,
-                    server=server_addr,
-                    transport=transport_enum,
-                    timeout=timeout,
-                    retries=retries,
-                    port=port,
-                )
-            )
-        except NxDomain:
-            raise  # NXDOMAIN is name-level: the name does not exist.
-        except DnsError as exc:
-            if first_error is None:
-                first_error = exc
-    if not records and first_error is not None:
-        raise first_error
-    elapsed_ms = (time.perf_counter() - start) * 1000.0
-    return LookupResult(
-        query=query,
-        resolver=Resolver(address=server_addr),
-        records=tuple(records),
-        elapsed_ms=elapsed_ms,
-    )
+    records = _query_types(engine, target, ALL_RECORD_TYPES, server_addr, query)
+    return _finish(query, server_addr, records, start)
 
 
 _MIN_COMPARE_SERVERS = 2
