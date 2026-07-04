@@ -113,7 +113,10 @@ single-target flows deliver value first.
 
 **Independent Test**: Supply a set of targets via each input method (args, file, stdin) and confirm
 each is resolved, results are emitted in a machine-consumable form suitable for streaming, and the
-overall exit code reflects aggregate success/failure per a defined rule.
+overall exit code reflects aggregate success/failure per this rule: the exit code is `0` only when
+**every** target succeeds; if all targets share the same single failure class it is that class's
+code (see the exit-code classes: 3 NXDOMAIN, 4 SERVFAIL, 5 REFUSED, 6 TIMEOUT); and any **mixed**
+batch — some targets succeed and some fail — aggregates to `7` (PARTIAL).
 
 **Acceptance Scenarios**:
 
@@ -210,7 +213,9 @@ the host process or printing to its console.
 - **Server failure vs nonexistent name**: SERVFAIL and NXDOMAIN are reported as different outcomes.
 - **Oversized/truncated response**: automatically completed over the alternate transport.
 - **Split-horizon / propagation**: differing answers across resolvers are surfaced by the compare flow.
-- **Local hosts-file overrides**: behavior is explicit and documented (respected or bypassed).
+- **Local hosts-file overrides**: **bypassed**. opskit queries the chosen/system DNS resolver
+  directly, so `/etc/hosts` (and the Windows `hosts` file) entries are never consulted; results
+  always reflect DNS, consistently across platforms.
 - **IPv4-only, IPv6-only, and dual-stack environments**: handled without crashing; missing family
   reported clearly.
 - **DNSSEC validation failure**: surfaced as a clear, distinct signal.

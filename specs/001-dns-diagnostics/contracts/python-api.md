@@ -8,13 +8,16 @@ or `sys.exit()`s, holds no global state, and ships `py.typed`. Signatures are il
 
 ```python
 from opskit.dns import (
-    lookup, reverse, compare,      # convenience functions
-    DnsClient,                     # configurable client
-    DnsQuery, DnsRecord, LookupResult, ResolverComparison, Resolver,  # models
-    RecordType, Transport, Outcome,                                   # enums
+    lookup, reverse, lookup_all, compare, trace, reverse_trace,  # convenience functions
+    DnsQuery, DnsRecord, LookupResult, Resolver,                 # models
+    ResolverAnswer, ResolverComparison, TraceStep,              # models (compare/trace)
+    RecordType, Transport, Outcome,                             # enums
     DnsError, NxDomain, ServerFailure, DnsRefused, DnsTimeout, DnssecError,  # errors
 )
 ```
+
+> The configurable `DnsClient` + `lookup_many()` below are **planned** (task T036) and not yet in
+> `__all__`; today the convenience functions above are the shipped public surface.
 
 ## Convenience functions
 

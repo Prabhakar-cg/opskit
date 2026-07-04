@@ -1,8 +1,13 @@
 # Quickstart & Validation: DNS Diagnostics
 
-How to run and validate the DNS feature end-to-end. Assumes a WSL/Unix or Windows shell with `uv`
-installed. Commands are run from the repo root. (Implementation is produced by `/speckit-implement`;
-this guide defines how we prove it works.)
+How to run and validate the DNS feature end-to-end. Commands are run from the repo root with `uv`
+installed. (Implementation is produced by `/speckit-implement`; this guide defines how we prove it
+works.)
+
+> **Shell note**: the validation commands below use POSIX shell syntax (WSL/Linux/macOS) — e.g.
+> `echo $?` for the exit code and `printf … | … -` for stdin batching. In PowerShell, read the exit
+> code with `$LASTEXITCODE` and pipe with `"example.com`nexample.org" | …`. The `opskit` commands
+> themselves are identical on every platform; only the surrounding shell glue differs.
 
 ## Setup
 
