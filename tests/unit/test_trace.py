@@ -108,6 +108,27 @@ def test_cli_trace_batch_partial(monkeypatch, tmp_path):
     assert "93.184.216.34" in result.stdout
 
 
+def test_cli_trace_json_batch_includes_failures(monkeypatch, tmp_path):
+    def fake(name, *a, **k):
+        if name == "bad.com":
+            raise UsageError("boom")
+        return _steps()
+
+    monkeypatch.setattr("opskit.dns.cli.api.trace", fake)
+    hosts = tmp_path / "hosts.txt"
+    hosts.write_text("good.com\nbad.com\n")
+    result = runner.invoke(
+        app, ["dns", "lookup", "--trace", "-i", str(hosts), "--json"]
+    )
+    assert result.exit_code == 7
+    payload = json.loads(result.stdout)
+    by_target = {e["query"]["target"]: e for e in payload}
+    # The failed target must be present in the JSON, not silently dropped.
+    assert by_target["good.com"]["result"]["trace"]
+    assert by_target["bad.com"]["error"] is not None
+    assert by_target["bad.com"]["result"] is None
+
+
 def test_cli_reverse_trace(monkeypatch):
     steps = (
         TraceStep(

@@ -122,6 +122,63 @@ def _envelope(
     )
 
 
+def _compare_envelope(
+    target: str,
+    comparison: Optional[ResolverComparison],
+    error: Optional[OpskitError],
+    types: Sequence[str],
+) -> dict[str, Any]:
+    """Build the JSON envelope for one compared target (success or failure)."""
+    if comparison is not None:
+        return build_envelope(
+            command="dns.compare",
+            query={
+                "target": comparison.target,
+                "record_types": [t.value for t in comparison.record_types],
+            },
+            result=comparison.to_dict(),
+            error=None,
+            elapsed_ms=0.0,
+        )
+    return build_envelope(
+        command="dns.compare",
+        query={"target": target, "record_types": [t.upper() for t in types]},
+        result=None,
+        error=error,
+        elapsed_ms=0.0,
+    )
+
+
+def _trace_envelope(
+    command: str,
+    target: str,
+    steps: Optional[tuple[TraceStep, ...]],
+    error: Optional[OpskitError],
+) -> dict[str, Any]:
+    """Build the JSON envelope for one traced target (success or failure)."""
+    result = (
+        {"trace": [step.to_dict() for step in steps]} if steps is not None else None
+    )
+    return build_envelope(
+        command=command,
+        query={"target": target},
+        result=result,
+        error=error,
+        elapsed_ms=0.0,
+    )
+
+
+def _emit_envelopes(envelopes: Sequence[dict[str, Any]], *, jsonl: bool) -> None:
+    """Emit JSON envelopes: NDJSON (one per line), a bare object, or an array."""
+    if jsonl:
+        for envelope in envelopes:
+            typer.echo(to_json(envelope, indent=None))
+    elif len(envelopes) == 1:
+        typer.echo(to_json(envelopes[0]))
+    else:
+        typer.echo(json.dumps(envelopes, indent=2))
+
+
 def _render_json(
     command: str,
     outcomes: Sequence[_Outcome],
@@ -130,13 +187,7 @@ def _render_json(
     jsonl: bool,
 ) -> None:
     envelopes = [_envelope(command, t, r, e, error_query) for t, r, e in outcomes]
-    if jsonl:
-        for envelope in envelopes:
-            typer.echo(to_json(envelope, indent=None))
-    elif len(envelopes) == 1:
-        typer.echo(to_json(envelopes[0]))
-    else:
-        typer.echo(json.dumps(envelopes, indent=2))
+    _emit_envelopes(envelopes, jsonl=jsonl)
 
 
 def _render_human(outcomes: Sequence[_Outcome], *, batch: bool, no_color: bool) -> None:
@@ -207,52 +258,45 @@ def _run_compare(
     Per-target failures don't abort the batch: successful comparisons are still rendered, and the
     exit code degrades to PARTIAL when any target failed (USAGE only when none succeeded).
     """
-    comparisons: list[ResolverComparison] = []
-    had_error = False
+    outcomes: list[tuple[str, Optional[ResolverComparison], Optional[OpskitError]]] = []
     for target in targets:
         try:
-            comparisons.append(
-                api.compare(
+            outcomes.append(
+                (
                     target,
-                    list(servers),
-                    types,
-                    transport=transport,
-                    timeout=timeout,
-                    retries=retries,
-                    port=port,
+                    api.compare(
+                        target,
+                        list(servers),
+                        types,
+                        transport=transport,
+                        timeout=timeout,
+                        retries=retries,
+                        port=port,
+                    ),
+                    None,
                 )
             )
-        except OpskitError as error:
-            had_error = True
-            typer.echo(f"error: {target}: {error.message}", err=True)
-    if not comparisons:
+        except OpskitError as exc:
+            outcomes.append((target, None, exc))
+    successes = [c for _, c, _ in outcomes if c is not None]
+    had_error = any(error is not None for _, _, error in outcomes)
+    if not successes:
+        for target, _, error in outcomes:
+            if error is not None:
+                typer.echo(f"error: {target}: {error.message}", err=True)
         return ExitCode.USAGE, ""
 
     if as_json or jsonl:
-        envelopes = [
-            build_envelope(
-                command="dns.compare",
-                query={
-                    "target": c.target,
-                    "record_types": [t.value for t in c.record_types],
-                },
-                result=c.to_dict(),
-                error=None,
-                elapsed_ms=0.0,
-            )
-            for c in comparisons
-        ]
-        if jsonl:
-            for envelope in envelopes:
-                typer.echo(to_json(envelope, indent=None))
-        elif len(envelopes) == 1:
-            typer.echo(to_json(envelopes[0]))
-        else:
-            typer.echo(json.dumps(envelopes, indent=2))
+        _emit_envelopes(
+            [_compare_envelope(t, c, e, types) for t, c, e in outcomes], jsonl=jsonl
+        )
     else:
         console = make_console(no_color=no_color)
-        for comparison in comparisons:
-            render_comparison(comparison, console=console)
+        for target, comparison, error in outcomes:
+            if comparison is not None:
+                render_comparison(comparison, console=console)
+            elif error is not None:
+                typer.echo(f"error: {target}: {error.message}", err=True)
     signature = json.dumps(
         [
             [
@@ -266,10 +310,10 @@ def _run_compare(
                     for a in c.answers
                 ],
             ]
-            for c in comparisons
+            for c in successes
         ]
     )
-    consistent = all(c.consistent for c in comparisons)
+    consistent = all(c.consistent for c in successes)
     code = ExitCode.OK if consistent and not had_error else ExitCode.PARTIAL
     return code, signature
 
@@ -288,44 +332,36 @@ def _run_trace(
     Per-target failures don't abort the batch: successful traces are still rendered, and the exit
     code degrades to PARTIAL when any target failed (USAGE only when none succeeded).
     """
-    per_target: list[tuple[str, tuple[TraceStep, ...]]] = []
-    had_error = False
+    outcomes: list[
+        tuple[str, Optional[tuple[TraceStep, ...]], Optional[OpskitError]]
+    ] = []
     for target in targets:
         try:
-            per_target.append((target, trace_fn(target)))
-        except OpskitError as error:
-            had_error = True
-            typer.echo(f"error: {target}: {error.message}", err=True)
-    if not per_target:
+            outcomes.append((target, trace_fn(target), None))
+        except OpskitError as exc:
+            outcomes.append((target, None, exc))
+    successes = [(t, s) for t, s, _ in outcomes if s is not None]
+    had_error = any(error is not None for _, _, error in outcomes)
+    if not successes:
+        for target, _, error in outcomes:
+            if error is not None:
+                typer.echo(f"error: {target}: {error.message}", err=True)
         return ExitCode.USAGE, ""
     if as_json or jsonl:
-        envelopes = [
-            build_envelope(
-                command=command,
-                query={"target": target},
-                result={"trace": [step.to_dict() for step in steps]},
-                error=None,
-                elapsed_ms=0.0,
-            )
-            for target, steps in per_target
-        ]
-        if jsonl:
-            for envelope in envelopes:
-                typer.echo(to_json(envelope, indent=None))
-        elif len(envelopes) == 1:
-            typer.echo(to_json(envelopes[0]))
-        else:
-            typer.echo(json.dumps(envelopes, indent=2))
+        _emit_envelopes(
+            [_trace_envelope(command, t, s, e) for t, s, e in outcomes], jsonl=jsonl
+        )
     else:
         console = make_console(no_color=no_color)
-        for target, steps in per_target:
-            if len(targets) > 1:
-                console.print(f"[bold];; trace {escape(target)}[/bold]")
-            render_trace(steps, console=console)
-    signature = json.dumps(
-        [[t, [s.response for s in steps]] for t, steps in per_target]
-    )
-    resolved = all(steps and steps[-1].response == "answer" for _, steps in per_target)
+        for target, steps, error in outcomes:
+            if steps is not None:
+                if len(targets) > 1:
+                    console.print(f"[bold];; trace {escape(target)}[/bold]")
+                render_trace(steps, console=console)
+            elif error is not None:
+                typer.echo(f"error: {target}: {error.message}", err=True)
+    signature = json.dumps([[t, [s.response for s in steps]] for t, steps in successes])
+    resolved = all(steps and steps[-1].response == "answer" for _, steps in successes)
     code = ExitCode.OK if resolved and not had_error else ExitCode.PARTIAL
     return code, signature
 

@@ -210,7 +210,9 @@ def trace_resolution(
         request.flags &= ~dns.flags.RD
         try:
             response = send(server, request)
-        except dns.exception.Timeout:
+        except (dns.exception.Timeout, OSError):
+            # A timeout or raw socket error (refused/unreachable) ends the trace at this hop
+            # rather than escaping as an unhandled exception.
             steps.append(TraceStep(server=server, zone=zone, response="error"))
             break
         if response.answer:

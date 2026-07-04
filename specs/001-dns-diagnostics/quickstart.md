@@ -32,7 +32,7 @@ uv run opskit --help    # root CLI loads; dns group present
 | US8 | trace | `uv run opskit dns lookup example.com --trace` | resolution path shown |
 | US9 | programmatic | `uv run python -c "from opskit.dns import lookup; print(lookup('example.com').ok)"` | `True`; typed result returned |
 
-Exit-code contract (US5/scripting): see `contracts/cli.md` — 0 ok, 2 usage, 3 NXDOMAIN, 4 SERVFAIL,
+Exit-code contract (US5/scripting): see `contracts/cli.md` — 0 ok, 1 error, 2 usage, 3 NXDOMAIN, 4 SERVFAIL,
 5 REFUSED, 6 TIMEOUT, 7 partial.
 
 ## Tightened-network validation (deterministic, no external network)

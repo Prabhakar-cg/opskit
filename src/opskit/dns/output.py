@@ -35,7 +35,7 @@ def render_comparison(comparison: ResolverComparison, *, console: Console) -> No
     status = "consistent" if comparison.consistent else "DIFFERS"
     types = "/".join(t.value for t in comparison.record_types)
     table = Table(
-        title=f"{comparison.target}  [{types}]  — {status}",
+        title=f"{escape(comparison.target)}  [{types}]  — {status}",
         show_header=True,
         header_style="bold",
     )

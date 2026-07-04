@@ -16,7 +16,7 @@ batch. `lookup` accepts hostnames; `reverse` accepts IPv4/IPv6 addresses.
 
 | Option | Type | Default | Notes |
 |--------|------|---------|-------|
-| `-t, --type` | repeatable enum | `A` (lookup) | A/AAAA/MX/TXT/CNAME/NS/SOA/SRV; ignored for `reverse` |
+| `-t, --type` | repeatable enum | `A` (lookup) | A/AAAA/MX/TXT/CNAME/NS/SOA/SRV/CAA; ignored for `reverse` |
 | `-s, --server` | repeatable str | system | resolver(s); ≥2 enables compare/diff |
 | `--transport` | enum | `auto` | `auto`\|`udp`\|`tcp` |
 | `--timeout` | float | `5.0` | per-attempt seconds |

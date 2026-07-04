@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 from opskit.cli import app
 from opskit.core.errors import UsageError
 from opskit.dns import compare
+from opskit.dns.api import ALL_RECORD_TYPES
 from opskit.dns.errors import ServerFailure
 from opskit.dns.models import (
     DnsRecord,
@@ -166,3 +167,79 @@ def test_cli_diff_batch_partial(monkeypatch, tmp_path):
     # unambiguous and avoid a URL-substring false positive.
     assert result.exit_code == 7
     assert "1.2.3.4" in result.stdout
+
+
+def test_cli_diff_json_batch_includes_failures(monkeypatch, tmp_path):
+    def fake(target, servers, types, **kw):
+        if target == "bad.com":
+            raise ServerFailure("boom")
+        answers = (
+            ResolverAnswer(
+                "1.1.1.1", Outcome.OK, (DnsRecord(RecordType.A, "1.2.3.4", 300),)
+            ),
+            ResolverAnswer(
+                "8.8.8.8", Outcome.OK, (DnsRecord(RecordType.A, "1.2.3.4", 300),)
+            ),
+        )
+        return ResolverComparison(target, (RecordType.A,), answers, consistent=True)
+
+    monkeypatch.setattr("opskit.dns.cli.api.compare", fake)
+    hosts = tmp_path / "hosts.txt"
+    hosts.write_text("good.com\nbad.com\n")
+    result = runner.invoke(
+        app,
+        [
+            "dns",
+            "lookup",
+            "--diff",
+            "-s",
+            "1.1.1.1",
+            "-s",
+            "8.8.8.8",
+            "-i",
+            str(hosts),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 7
+    payload = json.loads(result.stdout)
+    by_target = {e["query"]["target"]: e for e in payload}
+    # The failed target must be present in the JSON, not silently dropped.
+    assert by_target["good.com"]["error"] is None
+    assert by_target["bad.com"]["error"] is not None
+    assert by_target["bad.com"]["result"] is None
+
+
+def test_cli_all_with_diff_fans_out_all_types(monkeypatch):
+    captured = {}
+
+    def fake_compare(target, servers, types, **kw):
+        captured["types"] = list(types)
+        answers = (
+            ResolverAnswer(
+                "1.1.1.1", Outcome.OK, (DnsRecord(RecordType.A, "1.2.3.4", 300),)
+            ),
+            ResolverAnswer(
+                "8.8.8.8", Outcome.OK, (DnsRecord(RecordType.A, "1.2.3.4", 300),)
+            ),
+        )
+        return ResolverComparison(target, (RecordType.A,), answers, consistent=True)
+
+    monkeypatch.setattr("opskit.dns.cli.api.compare", fake_compare)
+    result = runner.invoke(
+        app,
+        [
+            "dns",
+            "lookup",
+            "example.com",
+            "--all",
+            "--diff",
+            "-s",
+            "1.1.1.1",
+            "-s",
+            "8.8.8.8",
+        ],
+    )
+    assert result.exit_code == 0
+    # --all must fan --diff out over every record type, not just the default A.
+    assert captured["types"] == [t.value for t in ALL_RECORD_TYPES]
