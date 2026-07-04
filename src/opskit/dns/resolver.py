@@ -173,6 +173,18 @@ def _resolve_glue(ns_name: str, timeout: float) -> str | None:
     return None
 
 
+def _next_hop_servers(
+    glue: list[str], ns_names: list[str], timeout: float
+) -> list[str]:
+    """Servers to query for the next trace hop: prefer glue, else resolve an NS name."""
+    if glue:
+        return glue
+    if ns_names:
+        resolved = _resolve_glue(ns_names[0], timeout)
+        return [resolved] if resolved else []
+    return []
+
+
 QueryFn = Callable[[str, dns.message.Message], dns.message.Message]
 
 
@@ -233,11 +245,5 @@ def trace_resolution(
         )
         if delegated:
             zone = delegated
-        if glue:
-            servers = glue
-        elif ns_names:
-            resolved = _resolve_glue(ns_names[0], timeout)
-            servers = [resolved] if resolved else []
-        else:
-            servers = []
+        servers = _next_hop_servers(glue, ns_names, timeout)
     return tuple(steps)

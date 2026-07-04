@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Optional, TypeVar
 
 import typer
 from rich.markup import escape
@@ -179,6 +179,31 @@ def _emit_envelopes(envelopes: Sequence[dict[str, Any]], *, jsonl: bool) -> None
         typer.echo(json.dumps(envelopes, indent=2))
 
 
+_T = TypeVar("_T")
+
+
+def _collect_outcomes(
+    targets: Sequence[str], run_one: Callable[[str], _T]
+) -> list[tuple[str, Optional[_T], Optional[OpskitError]]]:
+    """Run ``run_one`` for each target, capturing its result or the raised OpskitError."""
+    outcomes: list[tuple[str, Optional[_T], Optional[OpskitError]]] = []
+    for target in targets:
+        try:
+            outcomes.append((target, run_one(target), None))
+        except OpskitError as exc:
+            outcomes.append((target, None, exc))
+    return outcomes
+
+
+def _echo_failures(
+    outcomes: Sequence[tuple[str, object, Optional[OpskitError]]],
+) -> None:
+    """Print each failed target's error to stderr (human mode / no-success bail)."""
+    for target, _, error in outcomes:
+        if error is not None:
+            typer.echo(f"error: {target}: {error.message}", err=True)
+
+
 def _render_json(
     command: str,
     outcomes: Sequence[_Outcome],
@@ -204,6 +229,39 @@ def _render_human(outcomes: Sequence[_Outcome], *, batch: bool, no_color: bool) 
             render_records(result.records, console=console)
 
 
+def _render_comparisons_human(
+    outcomes: Sequence[tuple[str, Optional[ResolverComparison], Optional[OpskitError]]],
+    *,
+    no_color: bool,
+) -> None:
+    """Render successful comparisons; echo failed targets to stderr."""
+    console = make_console(no_color=no_color)
+    for target, comparison, error in outcomes:
+        if comparison is not None:
+            render_comparison(comparison, console=console)
+        elif error is not None:
+            typer.echo(f"error: {target}: {error.message}", err=True)
+
+
+def _render_traces_human(
+    outcomes: Sequence[
+        tuple[str, Optional[tuple[TraceStep, ...]], Optional[OpskitError]]
+    ],
+    *,
+    batch: bool,
+    no_color: bool,
+) -> None:
+    """Render successful traces; echo failed targets to stderr."""
+    console = make_console(no_color=no_color)
+    for target, steps, error in outcomes:
+        if steps is not None:
+            if batch:
+                console.print(f"[bold];; trace {escape(target)}[/bold]")
+            render_trace(steps, console=console)
+        elif error is not None:
+            typer.echo(f"error: {target}: {error.message}", err=True)
+
+
 def _signature(outcomes: Sequence[_Outcome]) -> str:
     """A change-detection key over targets and their (type, value) records (TTL ignored)."""
     parts: list[object] = []
@@ -227,12 +285,7 @@ def _run(
     no_color: bool,
 ) -> tuple[ExitCode, str]:
     """Execute the query for each target and render; return (exit code, change signature)."""
-    outcomes: list[_Outcome] = []
-    for target in targets:
-        try:
-            outcomes.append((target, run_one(target), None))
-        except OpskitError as error:
-            outcomes.append((target, None, error))
+    outcomes = _collect_outcomes(targets, run_one)
     if as_json or jsonl:
         _render_json(command, outcomes, error_query, jsonl=jsonl)
     else:
@@ -258,32 +311,22 @@ def _run_compare(
     Per-target failures don't abort the batch: successful comparisons are still rendered, and the
     exit code degrades to PARTIAL when any target failed (USAGE only when none succeeded).
     """
-    outcomes: list[tuple[str, Optional[ResolverComparison], Optional[OpskitError]]] = []
-    for target in targets:
-        try:
-            outcomes.append(
-                (
-                    target,
-                    api.compare(
-                        target,
-                        list(servers),
-                        types,
-                        transport=transport,
-                        timeout=timeout,
-                        retries=retries,
-                        port=port,
-                    ),
-                    None,
-                )
-            )
-        except OpskitError as exc:
-            outcomes.append((target, None, exc))
+    outcomes = _collect_outcomes(
+        targets,
+        lambda target: api.compare(
+            target,
+            list(servers),
+            types,
+            transport=transport,
+            timeout=timeout,
+            retries=retries,
+            port=port,
+        ),
+    )
     successes = [c for _, c, _ in outcomes if c is not None]
     had_error = any(error is not None for _, _, error in outcomes)
     if not successes:
-        for target, _, error in outcomes:
-            if error is not None:
-                typer.echo(f"error: {target}: {error.message}", err=True)
+        _echo_failures(outcomes)
         return ExitCode.USAGE, ""
 
     if as_json or jsonl:
@@ -291,12 +334,7 @@ def _run_compare(
             [_compare_envelope(t, c, e, types) for t, c, e in outcomes], jsonl=jsonl
         )
     else:
-        console = make_console(no_color=no_color)
-        for target, comparison, error in outcomes:
-            if comparison is not None:
-                render_comparison(comparison, console=console)
-            elif error is not None:
-                typer.echo(f"error: {target}: {error.message}", err=True)
+        _render_comparisons_human(outcomes, no_color=no_color)
     signature = json.dumps(
         [
             [
@@ -332,34 +370,18 @@ def _run_trace(
     Per-target failures don't abort the batch: successful traces are still rendered, and the exit
     code degrades to PARTIAL when any target failed (USAGE only when none succeeded).
     """
-    outcomes: list[
-        tuple[str, Optional[tuple[TraceStep, ...]], Optional[OpskitError]]
-    ] = []
-    for target in targets:
-        try:
-            outcomes.append((target, trace_fn(target), None))
-        except OpskitError as exc:
-            outcomes.append((target, None, exc))
+    outcomes = _collect_outcomes(targets, trace_fn)
     successes = [(t, s) for t, s, _ in outcomes if s is not None]
     had_error = any(error is not None for _, _, error in outcomes)
     if not successes:
-        for target, _, error in outcomes:
-            if error is not None:
-                typer.echo(f"error: {target}: {error.message}", err=True)
+        _echo_failures(outcomes)
         return ExitCode.USAGE, ""
     if as_json or jsonl:
         _emit_envelopes(
             [_trace_envelope(command, t, s, e) for t, s, e in outcomes], jsonl=jsonl
         )
     else:
-        console = make_console(no_color=no_color)
-        for target, steps, error in outcomes:
-            if steps is not None:
-                if len(targets) > 1:
-                    console.print(f"[bold];; trace {escape(target)}[/bold]")
-                render_trace(steps, console=console)
-            elif error is not None:
-                typer.echo(f"error: {target}: {error.message}", err=True)
+        _render_traces_human(outcomes, batch=len(targets) > 1, no_color=no_color)
     signature = json.dumps([[t, [s.response for s in steps]] for t, steps in successes])
     resolved = all(steps and steps[-1].response == "answer" for _, steps in successes)
     code = ExitCode.OK if resolved and not had_error else ExitCode.PARTIAL
