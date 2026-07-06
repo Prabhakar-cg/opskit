@@ -34,6 +34,9 @@ dependencies = [
     "rich>=13,<16",
     "platformdirs>=4,<5",
     "tomli>=2 ; python_version < '3.11'",
+    # TLS category: handshake/chain retrieval + certificate parsing (PyCA-maintained).
+    "pyopenssl>=24,<27",
+    "cryptography>=42,<48",
 ]
 
 [project.urls]

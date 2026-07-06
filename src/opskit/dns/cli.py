@@ -12,19 +12,26 @@ via a positional argument and/or ``--input-file`` (one target per line, ``#`` co
 """
 
 import json
-import time
 from collections.abc import Callable, Sequence
-from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Optional, TypeVar
+from typing import Annotated, Any, Optional
 
 import typer
 from rich.markup import escape
 
+from opskit.core.cliutils import (
+    ActionResult,
+    aggregate_outcome_exit,
+    collect_outcomes,
+    collect_targets,
+    echo_failures,
+    emit_envelopes,
+    run_or_watch,
+)
 from opskit.core.errors import OpskitError, UsageError
-from opskit.core.exit_codes import ExitCode, exit_code_for
+from opskit.core.exit_codes import ExitCode
 from opskit.core.output import make_console
-from opskit.core.result import build_envelope, to_json
+from opskit.core.result import build_envelope
 from opskit.dns import api
 from opskit.dns.models import LookupResult, ResolverComparison, TraceStep
 from opskit.dns.output import render_comparison, render_records, render_trace
@@ -55,47 +62,6 @@ _REVERSE_EPILOG = """\
 
 # (target, result-or-None, error-or-None) for one target in a batch.
 _Outcome = tuple[str, Optional[LookupResult], Optional[OpskitError]]
-
-
-def _read_input_file(path: Path) -> list[str]:
-    """Read targets from a file, one per line, ignoring blanks and ``#`` comments."""
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise UsageError(f"cannot read input file: {path}") from exc
-    targets: list[str] = []
-    for line in raw.splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#"):
-            targets.append(stripped)
-    return targets
-
-
-def _collect_targets(
-    positional: Optional[str], input_file: Optional[Path]
-) -> list[str]:
-    """Combine a positional target with any from ``--input-file`` (positional first)."""
-    targets: list[str] = []
-    if positional:
-        targets.append(positional)
-    if input_file is not None:
-        targets.extend(_read_input_file(input_file))
-    if not targets:
-        raise UsageError("provide a target argument or --input-file")
-    return targets
-
-
-def _aggregate_exit(outcomes: Sequence[_Outcome]) -> ExitCode:
-    """0 if all succeed; the single code for one target; PARTIAL for a mixed batch."""
-    codes = [
-        ExitCode.OK if error is None else exit_code_for(error)
-        for _, _, error in outcomes
-    ]
-    if all(code is ExitCode.OK for code in codes):
-        return ExitCode.OK
-    if len(codes) == 1:
-        return codes[0]
-    return ExitCode.PARTIAL
 
 
 def _envelope(
@@ -168,42 +134,6 @@ def _trace_envelope(
     )
 
 
-def _emit_envelopes(envelopes: Sequence[dict[str, Any]], *, jsonl: bool) -> None:
-    """Emit JSON envelopes: NDJSON (one per line), a bare object, or an array."""
-    if jsonl:
-        for envelope in envelopes:
-            typer.echo(to_json(envelope, indent=None))
-    elif len(envelopes) == 1:
-        typer.echo(to_json(envelopes[0]))
-    else:
-        typer.echo(json.dumps(envelopes, indent=2))
-
-
-_T = TypeVar("_T")
-
-
-def _collect_outcomes(
-    targets: Sequence[str], run_one: Callable[[str], _T]
-) -> list[tuple[str, Optional[_T], Optional[OpskitError]]]:
-    """Run ``run_one`` for each target, capturing its result or the raised OpskitError."""
-    outcomes: list[tuple[str, Optional[_T], Optional[OpskitError]]] = []
-    for target in targets:
-        try:
-            outcomes.append((target, run_one(target), None))
-        except OpskitError as exc:
-            outcomes.append((target, None, exc))
-    return outcomes
-
-
-def _echo_failures(
-    outcomes: Sequence[tuple[str, object, Optional[OpskitError]]],
-) -> None:
-    """Print each failed target's error to stderr (human mode / no-success bail)."""
-    for target, _, error in outcomes:
-        if error is not None:
-            typer.echo(f"error: {target}: {error.message}", err=True)
-
-
 def _render_json(
     command: str,
     outcomes: Sequence[_Outcome],
@@ -212,7 +142,7 @@ def _render_json(
     jsonl: bool,
 ) -> None:
     envelopes = [_envelope(command, t, r, e, error_query) for t, r, e in outcomes]
-    _emit_envelopes(envelopes, jsonl=jsonl)
+    emit_envelopes(envelopes, jsonl=jsonl)
 
 
 def _render_human(outcomes: Sequence[_Outcome], *, batch: bool, no_color: bool) -> None:
@@ -285,12 +215,12 @@ def _run(
     no_color: bool,
 ) -> tuple[ExitCode, str]:
     """Execute the query for each target and render; return (exit code, change signature)."""
-    outcomes = _collect_outcomes(targets, run_one)
+    outcomes = collect_outcomes(targets, run_one)
     if as_json or jsonl:
         _render_json(command, outcomes, error_query, jsonl=jsonl)
     else:
         _render_human(outcomes, batch=len(targets) > 1, no_color=no_color)
-    return _aggregate_exit(outcomes), _signature(outcomes)
+    return aggregate_outcome_exit(outcomes), _signature(outcomes)
 
 
 def _run_compare(
@@ -311,7 +241,7 @@ def _run_compare(
     Per-target failures don't abort the batch: successful comparisons are still rendered, and the
     exit code degrades to PARTIAL when any target failed (USAGE only when none succeeded).
     """
-    outcomes = _collect_outcomes(
+    outcomes = collect_outcomes(
         targets,
         lambda target: api.compare(
             target,
@@ -326,11 +256,11 @@ def _run_compare(
     successes = [c for _, c, _ in outcomes if c is not None]
     had_error = any(error is not None for _, _, error in outcomes)
     if not successes:
-        _echo_failures(outcomes)
+        echo_failures(outcomes)
         return ExitCode.USAGE, ""
 
     if as_json or jsonl:
-        _emit_envelopes(
+        emit_envelopes(
             [_compare_envelope(t, c, e, types) for t, c, e in outcomes], jsonl=jsonl
         )
     else:
@@ -370,14 +300,14 @@ def _run_trace(
     Per-target failures don't abort the batch: successful traces are still rendered, and the exit
     code degrades to PARTIAL when any target failed (USAGE only when none succeeded).
     """
-    outcomes = _collect_outcomes(targets, trace_fn)
+    outcomes = collect_outcomes(targets, trace_fn)
     successes = [(t, s) for t, s, _ in outcomes if s is not None]
     had_error = any(error is not None for _, _, error in outcomes)
     if not successes:
-        _echo_failures(outcomes)
+        echo_failures(outcomes)
         return ExitCode.USAGE, ""
     if as_json or jsonl:
-        _emit_envelopes(
+        emit_envelopes(
             [_trace_envelope(command, t, s, e) for t, s, e in outcomes], jsonl=jsonl
         )
     else:
@@ -386,72 +316,6 @@ def _run_trace(
     resolved = all(steps and steps[-1].response == "answer" for _, steps in successes)
     code = ExitCode.OK if resolved and not had_error else ExitCode.PARTIAL
     return code, signature
-
-
-_ActionResult = tuple[ExitCode, str]
-
-
-def _parse_interval(text: str) -> float:
-    """Parse a --watch interval like '5', '5s', '250ms', or '2m' into seconds."""
-    value = text.strip().lower()
-    try:
-        if value.endswith("ms"):
-            seconds = float(value[:-2]) / 1000.0
-        elif value.endswith("s"):
-            seconds = float(value[:-1])
-        elif value.endswith("m"):
-            seconds = float(value[:-1]) * 60.0
-        else:
-            seconds = float(value)
-    except ValueError as exc:
-        raise UsageError(f"invalid --watch interval: {text}") from exc
-    if seconds <= 0:
-        raise UsageError("--watch interval must be positive")
-    return seconds
-
-
-def _watch(
-    action: Callable[[], _ActionResult],
-    *,
-    interval: float,
-    no_color: bool,
-) -> ExitCode:
-    """Re-run ``action`` every ``interval`` seconds until interrupted, flagging changes."""
-    console = make_console(no_color=no_color)
-    previous: Optional[str] = None
-    code = ExitCode.OK
-    try:
-        while True:
-            code, signature = action()
-            if previous is None:
-                status = "initial"
-            elif signature != previous:
-                status = "changed"
-            else:
-                status = "no change"
-            stamp = datetime.now().strftime("%H:%M:%S")
-            console.print(
-                f"[dim]-- {stamp} - {status} - next in {interval:g}s (Ctrl-C to stop) --[/dim]"
-            )
-            previous = signature
-            time.sleep(interval)  # looked up at call time so tests can patch it
-    except KeyboardInterrupt:
-        return code
-
-
-def _run_or_watch(
-    action: Callable[[], _ActionResult], *, watch: Optional[str], no_color: bool
-) -> None:
-    """Run ``action`` once, or repeatedly under --watch; then exit with its code."""
-    if watch is not None:
-        try:
-            interval = _parse_interval(watch)
-        except UsageError as error:
-            typer.echo(f"error: {error.message}", err=True)
-            raise typer.Exit(int(ExitCode.USAGE)) from error
-        raise typer.Exit(int(_watch(action, interval=interval, no_color=no_color)))
-    code, _ = action()
-    raise typer.Exit(int(code))
 
 
 @app.command(epilog=_LOOKUP_EPILOG)
@@ -560,7 +424,7 @@ def lookup(
     """Forward DNS lookup for one or more hostnames."""
     requested = types if types else ["A"]
     try:
-        targets = _collect_targets(target, input_file)
+        targets = collect_targets(target, input_file)
     except UsageError as error:
         typer.echo(f"error: {error.message}", err=True)
         raise typer.Exit(int(ExitCode.USAGE)) from error
@@ -602,7 +466,7 @@ def lookup(
             }
         return {"target": name, "record_types": [t.upper() for t in requested]}
 
-    def action() -> _ActionResult:
+    def action() -> ActionResult:
         if trace:
             return _run_trace(
                 targets,
@@ -635,7 +499,7 @@ def lookup(
             no_color=no_color,
         )
 
-    _run_or_watch(action, watch=watch, no_color=no_color)
+    run_or_watch(action, watch_spec=watch, no_color=no_color)
 
 
 @app.command(epilog=_REVERSE_EPILOG)
@@ -722,7 +586,7 @@ def reverse(
 ) -> None:
     """Reverse (PTR) lookup for one or more IP addresses."""
     try:
-        targets = _collect_targets(target, input_file)
+        targets = collect_targets(target, input_file)
     except UsageError as error:
         typer.echo(f"error: {error.message}", err=True)
         raise typer.Exit(int(ExitCode.USAGE)) from error
@@ -740,7 +604,7 @@ def reverse(
     def error_query(ip: str) -> dict[str, Any]:
         return {"target": ip}
 
-    def action() -> _ActionResult:
+    def action() -> ActionResult:
         if trace:
             return _run_trace(
                 targets,
@@ -760,4 +624,4 @@ def reverse(
             no_color=no_color,
         )
 
-    _run_or_watch(action, watch=watch, no_color=no_color)
+    run_or_watch(action, watch_spec=watch, no_color=no_color)

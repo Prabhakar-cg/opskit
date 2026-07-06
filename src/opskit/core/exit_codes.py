@@ -24,6 +24,10 @@ class ExitCode(IntEnum):
     REFUSED = 5
     TIMEOUT = 6
     PARTIAL = 7
+    CONNECT_FAILED = 8
+    HANDSHAKE_FAILED = 9
+    CERT_INVALID = 10
+    CERT_EXPIRING = 11
 
 
 def exit_code_for(error: OpskitError) -> ExitCode:

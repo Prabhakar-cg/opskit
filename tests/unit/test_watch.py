@@ -6,24 +6,24 @@ import pytest
 from typer.testing import CliRunner
 
 from opskit.cli import app
+from opskit.core.cliutils import parse_interval
 from opskit.core.errors import UsageError
-from opskit.dns.cli import _parse_interval
 from opskit.dns.models import DnsQuery, DnsRecord, LookupResult, RecordType, Resolver
 
 runner = CliRunner()
 
 
 def test_parse_interval_units():
-    assert _parse_interval("5") == 5.0
-    assert _parse_interval("5s") == 5.0
-    assert _parse_interval("2m") == 120.0
-    assert _parse_interval("250ms") == 0.25
+    assert parse_interval("5") == 5.0
+    assert parse_interval("5s") == 5.0
+    assert parse_interval("2m") == 120.0
+    assert parse_interval("250ms") == 0.25
 
 
 @pytest.mark.parametrize("bad", ["", "abc", "0", "-3", "5x"])
 def test_parse_interval_rejects(bad):
     with pytest.raises(UsageError):
-        _parse_interval(bad)
+        parse_interval(bad)
 
 
 def _result(target, value="1.2.3.4"):
@@ -49,7 +49,7 @@ def _stop_after(n):
 
 
 def test_watch_loops_until_interrupt(monkeypatch):
-    monkeypatch.setattr("opskit.dns.cli.time.sleep", _stop_after(2))
+    monkeypatch.setattr("opskit.core.cliutils.time.sleep", _stop_after(2))
     monkeypatch.setattr(
         "opskit.dns.cli.api.lookup", lambda name, *a, **k: _result(name)
     )
@@ -60,7 +60,7 @@ def test_watch_loops_until_interrupt(monkeypatch):
 
 def test_watch_detects_change(monkeypatch):
     values = iter(["1.1.1.1", "2.2.2.2"])
-    monkeypatch.setattr("opskit.dns.cli.time.sleep", _stop_after(2))
+    monkeypatch.setattr("opskit.core.cliutils.time.sleep", _stop_after(2))
     monkeypatch.setattr(
         "opskit.dns.cli.api.lookup", lambda name, *a, **k: _result(name, next(values))
     )
@@ -75,7 +75,7 @@ def test_watch_bad_interval():
 
 
 def test_watch_available_on_reverse(monkeypatch):
-    monkeypatch.setattr("opskit.dns.cli.time.sleep", _stop_after(1))
+    monkeypatch.setattr("opskit.core.cliutils.time.sleep", _stop_after(1))
     monkeypatch.setattr(
         "opskit.dns.cli.api.reverse", lambda ip, *a, **k: _result(ip, "host.example.")
     )
