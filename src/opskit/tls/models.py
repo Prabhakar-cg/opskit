@@ -83,24 +83,7 @@ def parse_target(
     if not text:
         raise UsageError("a target host is required")
 
-    shorthand_port: int | None = None
-    host = text
-
-    if text.startswith("["):  # [v6]:port or [v6]
-        closing = text.find("]")
-        if closing < 0:
-            raise UsageError(f"invalid target (unclosed '['): {raw}")
-        host = text[1:closing]
-        rest = text[closing + 1 :]
-        if rest.startswith(":"):
-            shorthand_port = _parse_port(rest[1:], raw)
-        elif rest:
-            raise UsageError(f"invalid target: {raw}")
-    elif text.count(":") == 1:  # host:port (a single colon cannot be bare IPv6)
-        host, _, port_text = text.partition(":")
-        shorthand_port = _parse_port(port_text, raw)
-    # else: bare hostname, IPv4, or bare IPv6 literal (multiple colons)
-
+    host, shorthand_port = _split_host_port(text, raw)
     host = host.strip().rstrip(".")  # normalize trailing-dot hostnames
     if not host:
         raise UsageError(f"invalid target (empty host): {raw}")
@@ -113,17 +96,45 @@ def parse_target(
     effective_port = shorthand_port if shorthand_port is not None else port
     if effective_port is None:
         effective_port = DEFAULT_PORT
+    elif not 1 <= effective_port <= _MAX_PORT:
+        raise UsageError(f"port must be between 1 and {_MAX_PORT}: {effective_port}")
+    is_ip = _is_ip_literal(host)
 
-    try:
-        ipaddress.ip_address(host)
-        is_ip = True
-    except ValueError:
-        is_ip = False
-
-    effective_sni = server_name if server_name else (None if is_ip else host)
+    if server_name:
+        effective_sni: str | None = server_name
+    elif is_ip:
+        effective_sni = None  # SNI does not apply to IP targets
+    else:
+        effective_sni = host
     return TlsTarget(
         host=host, port=effective_port, server_name=effective_sni, is_ip=is_ip
     )
+
+
+def _split_host_port(text: str, raw: str) -> tuple[str, int | None]:
+    """Split a target into (host, shorthand-port); handles `[v6]:port` and bare IPv6."""
+    if text.startswith("["):  # [v6]:port or [v6]
+        closing = text.find("]")
+        if closing < 0:
+            raise UsageError(f"invalid target (unclosed '['): {raw}")
+        rest = text[closing + 1 :]
+        if rest.startswith(":"):
+            return text[1:closing], _parse_port(rest[1:], raw)
+        if rest:
+            raise UsageError(f"invalid target: {raw}")
+        return text[1:closing], None
+    if text.count(":") == 1:  # host:port (a single colon cannot be bare IPv6)
+        host, _, port_text = text.partition(":")
+        return host, _parse_port(port_text, raw)
+    return text, None  # bare hostname, IPv4, or bare IPv6 literal (multiple colons)
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
 
 
 def _parse_port(text: str, raw: str) -> int:

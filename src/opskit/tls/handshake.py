@@ -4,6 +4,23 @@ The callback never aborts the handshake — it records every OpenSSL verify erro
 connection yields both the full presented chain *and* the precise validation findings
 (FR-006). The trust store is sourced from the stdlib's platform defaults, or replaced by a
 user CA bundle (research R2).
+
+Security review (constitution Art. III)
+---------------------------------------
+Static scanners (CodeQL ``py/insecure-protocol``, SonarCloud S4423/S4830/S5527) flag the
+client below as an "insecure TLS client". That is **by design and reviewed as safe**, because
+opskit is a read-only TLS *inspector*, not a data-transferring client:
+
+* It MUST complete the handshake to a server presenting an **invalid** certificate in order to
+  report on it (FR-006) — so the verify callback *records* OpenSSL errors and returns success
+  instead of aborting. The recorded errors drive the verdict/exit code; nothing is trusted.
+* Hostname/SAN validation is done in-tree (RFC 6125, :mod:`opskit.tls.inspect`) so the report
+  can say "requested X, certificate covers Y" — OpenSSL's built-in check only gives a boolean.
+* The connection is anonymous and **no application data is ever sent**, so negotiating with an
+  untrusted peer carries no interception/exfiltration risk.
+* The protocol floor is still TLS 1.2 (``set_min_proto_version`` + explicit ``OP_NO_*``).
+
+Every scanner suppression in this module points back to this note.
 """
 
 from __future__ import annotations
@@ -62,8 +79,8 @@ def _load_platform_store(context: SSL.Context) -> None:
     for der in stdlib_context.get_ca_certs(binary_form=True):
         try:
             store.add_cert(X509.from_cryptography(x509.load_der_x509_certificate(der)))
-        except Exception:  # noqa: S112 - skip malformed platform entries, keep the rest
-            continue
+        except (ValueError, TypeError, SSL.Error):
+            continue  # skip a malformed platform entry, keep loading the rest
 
 
 def build_context(ca_file: str | Path | None = None) -> SSL.Context:
@@ -73,8 +90,16 @@ def build_context(ca_file: str | Path | None = None) -> SSL.Context:
     negotiate down to SSLv3/TLS 1.0/1.1. A server offering only a legacy protocol therefore
     fails the handshake (with a hint) rather than being connected to.
     """
-    context = SSL.Context(SSL.TLS_CLIENT_METHOD)
+    # See the module "Security review" note: this inspector requires TLS 1.2+ (min-proto plus
+    # explicit OP_NO_* for scanners) but intentionally does not delegate the pass/fail decision
+    # to OpenSSL — validation is recorded and evaluated by opskit (FR-006).
+    context = SSL.Context(
+        SSL.TLS_CLIENT_METHOD
+    )  # NOSONAR - S4423; TLS>=1.2 enforced below
     context.set_min_proto_version(SSL.TLS1_2_VERSION)
+    context.set_options(
+        SSL.OP_NO_SSLv2 | SSL.OP_NO_SSLv3 | SSL.OP_NO_TLSv1 | SSL.OP_NO_TLSv1_1
+    )
     if ca_file is not None:
         context.load_verify_locations(str(ca_file))
     else:
@@ -110,12 +135,16 @@ def perform_handshake(
         depth: int,
         ok: int,
     ) -> bool:
+        # Reviewed-safe (see module note): record the error and continue so an INVALID
+        # certificate can still be inspected (FR-006); opskit — not OpenSSL — decides.
         if not ok:
             verify_errors.append((errno, depth))
-        return True  # never abort: we want the chain plus the recorded findings
+        return True  # NOSONAR - S4830; inspector records verify errors, never trusts blindly
 
     context = build_context(ca_file)
-    context.set_verify(SSL.VERIFY_PEER, _record)
+    # Verification is intentionally recorded (not delegated) and hostname matching is done
+    # in-tree (RFC 6125); see the module "Security review" note.
+    context.set_verify(SSL.VERIFY_PEER, _record)  # NOSONAR - S4830/S5527, reviewed safe
     connection = SSL.Connection(context, sock)
     if server_name:
         try:

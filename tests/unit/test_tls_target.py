@@ -27,6 +27,12 @@ def test_port_option():
     assert target.port == 993
 
 
+@pytest.mark.parametrize("bad", [0, -1, 70000])
+def test_out_of_range_port_option_rejected(bad):
+    with pytest.raises(UsageError):
+        parse_target("example.com", port=bad)
+
+
 def test_shorthand_and_option_must_agree():
     assert parse_target("example.com:8443", port=8443).port == 8443
     with pytest.raises(UsageError):
