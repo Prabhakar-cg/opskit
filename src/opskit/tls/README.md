@@ -77,8 +77,12 @@ The check walks resolve → connect → handshake → validate and reports **whi
 
 Distinct certificate conditions are reported separately: **expired** vs **not yet valid**,
 **self-signed** vs **untrusted chain** vs **incomplete chain** (server forgot the
-intermediate), **name mismatch** (shows requested vs covered names), **no SANs** (legacy
-CN-only certificates), and a **legacy protocol** warning below TLS 1.2.
+intermediate), **name mismatch** (shows requested vs covered names), and **no SANs** (legacy
+CN-only certificates).
+
+**Protocol floor**: opskit is secure-by-default and requires **TLS 1.2 or newer**. A server
+that offers only SSLv3 / TLS 1.0 / 1.1 fails the handshake (exit 9) with a hint, rather than
+opskit negotiating down to a weak protocol.
 
 ## Trust & name validation
 

@@ -332,3 +332,9 @@ and certificate attributes, and catch a specific typed error for an induced fail
   the `dns` category's job — a resolution failure here points the user to `opskit dns`.
 - **Dual-stack behavior**: addresses are tried in the platform's default order and the first
   successful connection is used; the connected address is always reported.
+- **Protocol floor (implementation decision, 2026-07-07)**: the client requires **TLS 1.2+**
+  (secure-by-default; satisfies the CodeQL/SonarCloud insecure-protocol gates without
+  suppressions). Consequently a server offering only SSLv3/TLS 1.0/1.1 fails the handshake
+  (exit 9) with a hint, rather than being connected to and reported as "negotiated <legacy>".
+  FR-009's below-1.2 warning is retained defensively; an opt-in `--allow-legacy`/`--min-tls`
+  flag to diagnose such endpoints is deferred to a future iteration.

@@ -67,8 +67,14 @@ def _load_platform_store(context: SSL.Context) -> None:
 
 
 def build_context(ca_file: str | Path | None = None) -> SSL.Context:
-    """Return a TLS client context whose trust store is the platform's (or ``ca_file``)."""
+    """Return a TLS client context whose trust store is the platform's (or ``ca_file``).
+
+    The client requires **TLS 1.2 or newer**: opskit is secure-by-default, so it will not
+    negotiate down to SSLv3/TLS 1.0/1.1. A server offering only a legacy protocol therefore
+    fails the handshake (with a hint) rather than being connected to.
+    """
     context = SSL.Context(SSL.TLS_CLIENT_METHOD)
+    context.set_min_proto_version(SSL.TLS1_2_VERSION)
     if ca_file is not None:
         context.load_verify_locations(str(ca_file))
     else:
@@ -135,8 +141,8 @@ def perform_handshake(
         raise HandshakeError(
             f"TLS handshake failed: {_ssl_error_text(exc)}",
             hint=(
-                "the service may not speak TLS on this port "
-                "(STARTTLS-style upgrades are not supported)"
+                "the service may not speak TLS on this port, or may only offer TLS "
+                "below 1.2 which opskit refuses (STARTTLS upgrades are not supported)"
             ),
         ) from exc
 

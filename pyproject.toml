@@ -7,7 +7,7 @@ name = "opskit"
 dynamic = ["version"]
 description = "Cross-platform diagnostics for engineers — one toolkit, every OS."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.9.2"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "prabhakar-cg" }]
@@ -36,7 +36,7 @@ dependencies = [
     "tomli>=2 ; python_version < '3.11'",
     # TLS category: handshake/chain retrieval + certificate parsing (PyCA-maintained).
     "pyopenssl>=24,<27",
-    "cryptography>=42,<48",
+    "cryptography>=48.0.1,<49",  # 48.0.1 fixes GHSA-537c-gmf6-5ccf
 ]
 
 [project.urls]
