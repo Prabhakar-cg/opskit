@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 
 import pytest
 
@@ -13,6 +14,7 @@ from opskit.net import (
     ResolutionError,
     connect,
     resolve,
+    tcp,
 )
 
 
@@ -82,3 +84,39 @@ def test_resolve_orders_candidates():
 def test_connect_unresolvable_raises_resolution_error():
     with pytest.raises(ResolutionError):
         connect("no-such-host.invalid", 443, timeout=0.5)
+
+
+def test_resolve_enforces_timeout(monkeypatch):
+    def _slow(*args, **kwargs):
+        time.sleep(2)
+        return []
+
+    monkeypatch.setattr(socket, "getaddrinfo", _slow)
+    with pytest.raises(ResolutionError) as excinfo:
+        resolve("slow.example", 443, timeout=0.1)
+    assert "timed out" in str(excinfo.value.message)
+
+
+def test_refusal_wins_over_timeout_for_dual_stack(monkeypatch):
+    # First candidate refuses (definitive), second would time out: report refused.
+    monkeypatch.setattr(
+        tcp,
+        "resolve",
+        lambda host, port, timeout=5.0: [
+            tcp.AddressCandidate(
+                "192.0.2.1", "ipv4", ("192.0.2.1", port), socket.AF_INET
+            ),
+            tcp.AddressCandidate("::1", "ipv6", ("::1", port, 0, 0), socket.AF_INET6),
+        ],
+    )
+    calls = []
+
+    def _connect(self, addr):
+        calls.append(addr)
+        if addr[0] == "192.0.2.1":
+            raise ConnectionRefusedError(111, "refused")
+        raise socket.timeout("slow")
+
+    monkeypatch.setattr(socket.socket, "connect", _connect)
+    with pytest.raises(ConnectRefused):
+        connect("dual.example", 443, timeout=0.05, retries=1)

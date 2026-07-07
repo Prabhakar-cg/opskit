@@ -105,3 +105,11 @@ def test_sni_shown_when_overridden():
     result = _result(target=parse_target("unit.test", server_name="other.test"))
     text = _render(result)
     assert "sni: other.test" in text
+
+
+def test_ip_target_with_sni_override_shows_both():
+    result = _result(target=parse_target("192.0.2.1", server_name="vhost.test"))
+    text = _render(result)
+    assert "192.0.2.1" in text
+    assert "sni: vhost.test" in text
+    assert "IP target" in text

@@ -67,7 +67,18 @@ def test_trailing_dot_normalized():
 
 
 @pytest.mark.parametrize(
-    "raw", ["", "   ", ":443", "[2001:db8::1", "host:notaport", "host:0", "host:70000"]
+    "raw",
+    [
+        "",
+        "   ",
+        ":443",
+        "[2001:db8::1",
+        "host:notaport",
+        "host:0",
+        "host:70000",
+        "foo:bar:baz",  # multi-colon, not a valid IPv6 literal -> ambiguous
+        "host:8443:extra",
+    ],
 )
 def test_invalid_targets_rejected(raw):
     with pytest.raises(UsageError):

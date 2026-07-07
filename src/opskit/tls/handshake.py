@@ -145,9 +145,9 @@ def perform_handshake(
     # Verification is intentionally recorded (not delegated) and hostname matching is done
     # in-tree (RFC 6125); see the module "Security review" note.
     context.set_verify(SSL.VERIFY_PEER, _record)  # NOSONAR - S4830/S5527, reviewed safe
-    # codeql[py/insecure-protocol]: reviewed safe — the context enforces TLS 1.2+ via
-    # set_min_proto_version + OP_NO_* (CodeQL does not model pyOpenSSL remediation). See the
-    # module "Security review" note.
+    # CodeQL py/insecure-protocol reports this as allowing SSLv3/TLS1.0/1.1: a false positive,
+    # since the context enforces TLS 1.2+ (set_min_proto_version + OP_NO_*) which CodeQL does
+    # not model for pyOpenSSL. Reviewed safe — dismissed on the default branch with this reason.
     connection = SSL.Connection(context, sock)
     if server_name:
         try:

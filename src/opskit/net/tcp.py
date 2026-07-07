@@ -7,6 +7,7 @@ into the :mod:`opskit.net.errors` hierarchy. Nothing here prints or exits (Art. 
 
 from __future__ import annotations
 
+import concurrent.futures
 import socket
 import time
 from dataclasses import dataclass
@@ -58,23 +59,35 @@ def resolve(host: str, port: int, *, timeout: float = 5.0) -> list[AddressCandid
     Args:
         host: Hostname or IP literal.
         port: Target port (carried into the socket addresses).
-        timeout: Unused for stdlib ``getaddrinfo`` (kept for signature stability).
+        timeout: Wall-clock budget for the lookup. ``socket.getaddrinfo`` has no per-call
+            timeout, so it runs off-thread and is abandoned after ``timeout`` seconds.
 
     Returns:
         Candidates in the order the platform recommends trying them.
 
     Raises:
-        ResolutionError: If the name resolves to nothing.
+        ResolutionError: If the name does not resolve or resolution exceeds ``timeout``.
     """
-    del timeout  # getaddrinfo has no per-call timeout; parameter kept for API stability
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(socket.getaddrinfo, host, port, type=socket.SOCK_STREAM)
     try:
-        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        infos = future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError as exc:
+        raise ResolutionError(
+            f"resolving {host} timed out after {timeout}s",
+            hint="the resolver may be slow or unreachable; diagnose with: opskit dns lookup "
+            + host,
+        ) from exc
     except OSError as exc:
         raise ResolutionError(
             f"cannot resolve {host}: {exc}",
             hint="check the name for typos, or diagnose with: opskit dns lookup "
             + host,
         ) from exc
+    finally:
+        # A lookup that timed out keeps running in the worker; don't block on it (the OS
+        # resolver abandons it per resolv.conf), just release the executor.
+        executor.shutdown(wait=False)
     candidates: list[AddressCandidate] = []
     for af, _, _, _, sockaddr in infos:
         candidates.append(
@@ -113,7 +126,8 @@ def connect(
     candidates = resolve(host, port, timeout=timeout)
     start = time.perf_counter()
     saw_timeout = False
-    last_exc: BaseException | None = None
+    refused_exc: BaseException | None = None
+    timeout_exc: BaseException | None = None
     for _ in range(retries + 1):
         for candidate in candidates:
             sock = socket.socket(candidate.af, socket.SOCK_STREAM)
@@ -123,10 +137,10 @@ def connect(
             except socket.timeout as exc:
                 sock.close()
                 saw_timeout = True
-                last_exc = exc
+                timeout_exc = exc
             except OSError as exc:
                 sock.close()
-                last_exc = exc
+                refused_exc = exc
             else:
                 connect_ms = (time.perf_counter() - start) * 1000.0
                 return sock, TcpConnection(
@@ -135,14 +149,16 @@ def connect(
                     port=port,
                     connect_ms=connect_ms,
                 )
-        if not saw_timeout:
-            break  # every candidate refused outright; retrying will not help
-    if saw_timeout:
-        raise ConnectTimeout(
-            f"no response from {host}:{port} within {timeout}s",
-            hint="the port may be filtered; verify reachability and firewall rules",
-        ) from last_exc
-    raise ConnectRefused(
-        f"cannot connect to {host}:{port}: {last_exc}",
-        hint="check that the service is listening on this port",
-    ) from last_exc
+        # A refusal is definitive (host reachable, port closed) — don't retry or wait for
+        # a slow sibling address; only pure-timeout runs are worth retrying.
+        if refused_exc is not None or not saw_timeout:
+            break
+    if refused_exc is not None:
+        raise ConnectRefused(
+            f"cannot connect to {host}:{port}: {refused_exc}",
+            hint="check that the service is listening on this port",
+        ) from refused_exc
+    raise ConnectTimeout(
+        f"no response from {host}:{port} within {timeout}s",
+        hint="the port may be filtered; verify reachability and firewall rules",
+    ) from timeout_exc

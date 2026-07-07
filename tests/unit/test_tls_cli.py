@@ -171,7 +171,9 @@ def test_batch_mixed_partial_and_failures_in_jsonl(monkeypatch, tmp_path):
     assert lines[0]["result"]["outcome"] == "ok"
     assert lines[1]["result"] is None
     assert lines[1]["error"]["code"] == "connect_refused"
-    assert lines[1]["query"]["target"] == "bad.test"
+    # Failed target's query is enriched with the parsed endpoint (host/port), not dropped.
+    assert lines[1]["query"]["host"] == "bad.test"
+    assert lines[1]["query"]["port"] == 443
 
 
 def test_watch_flags_certificate_rotation(monkeypatch):

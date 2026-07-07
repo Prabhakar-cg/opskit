@@ -31,7 +31,7 @@ from opskit.core.exit_codes import ExitCode, exit_code_for
 from opskit.core.output import make_console
 from opskit.core.result import build_envelope
 from opskit.tls import api
-from opskit.tls.models import TlsCheckResult, TlsOutcome
+from opskit.tls.models import TlsCheckResult, TlsOutcome, parse_target
 from opskit.tls.output import render_check
 
 app = typer.Typer(
@@ -80,9 +80,15 @@ def _envelope(
             error=None,
             elapsed_ms=result.elapsed_ms,
         )
+    # Failure path: enrich the query with the parsed host/port/SNI when the target parses,
+    # so a failed target's envelope still identifies the endpoint (not just the raw string).
+    try:
+        error_query: dict[str, Any] = parse_target(target).to_dict()
+    except UsageError:
+        error_query = {"target": target}
     return build_envelope(
         command="tls.check",
-        query=dict({"target": target}, **controls),
+        query=dict(error_query, **controls),
         result=None,
         error=error,
         elapsed_ms=0.0,

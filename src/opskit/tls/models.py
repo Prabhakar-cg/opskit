@@ -126,7 +126,13 @@ def _split_host_port(text: str, raw: str) -> tuple[str, int | None]:
     if text.count(":") == 1:  # host:port (a single colon cannot be bare IPv6)
         host, _, port_text = text.partition(":")
         return host, _parse_port(port_text, raw)
-    return text, None  # bare hostname, IPv4, or bare IPv6 literal (multiple colons)
+    if text.count(":") > 1 and not _is_ip_literal(text):
+        # Multiple colons are only valid as a bare IPv6 literal; anything else is ambiguous.
+        raise UsageError(
+            f"invalid target: {raw}",
+            hint="use [ipv6]:port to add a port to an IPv6 address",
+        )
+    return text, None  # bare hostname, IPv4, or bare IPv6 literal
 
 
 def _is_ip_literal(host: str) -> bool:

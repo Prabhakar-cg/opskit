@@ -49,7 +49,7 @@ not treated as a port separator).
 | `serial` | `str` | hex |
 | `signature_algorithm` | `str` | e.g. `sha256WithRSAEncryption` |
 | `key_type` / `key_bits` | `str` / `int` | e.g. `RSA`/2048, `EC`/256 |
-| `fingerprint_sha256` | `str` | drives the `--watch` change signature (R8) |
+| `fingerprint_sha256` | `str` | part of the `--watch` change signature (R8) |
 | `is_self_signed` | `bool` | subject == issuer && self-verifies |
 
 ### ValidationFinding *(one failed/warned condition)*

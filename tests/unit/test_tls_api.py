@@ -7,6 +7,7 @@ import socket
 import pytest
 
 from opskit.core.errors import UsageError
+from opskit.core.exit_codes import ExitCode
 from opskit.net import TcpConnection
 from opskit.net.errors import ConnectRefused, ConnectTimeout, ResolutionError
 from opskit.tls import (
@@ -110,7 +111,7 @@ def test_raise_on_invalid_carries_findings(fake_stack):
     with pytest.raises(CertificateInvalid) as excinfo:
         check("unit.test", raise_on_invalid=True)
     assert excinfo.value.findings
-    assert excinfo.value.exit_code == 10
+    assert excinfo.value.exit_code is ExitCode.CERT_INVALID
 
 
 def test_empty_chain_raises(fake_stack, monkeypatch):
