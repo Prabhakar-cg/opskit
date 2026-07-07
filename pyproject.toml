@@ -7,7 +7,7 @@ name = "opskit"
 dynamic = ["version"]
 description = "Cross-platform diagnostics for engineers — one toolkit, every OS."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.9.2"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "prabhakar-cg" }]
@@ -34,6 +34,9 @@ dependencies = [
     "rich>=13,<16",
     "platformdirs>=4,<5",
     "tomli>=2 ; python_version < '3.11'",
+    # TLS category: handshake/chain retrieval + certificate parsing (PyCA-maintained).
+    "pyopenssl>=24,<27",
+    "cryptography>=48.0.1,<49",  # 48.0.1 fixes GHSA-537c-gmf6-5ccf
 ]
 
 [project.urls]
@@ -136,7 +139,7 @@ typeCheckingMode = "strict"
 testpaths = ["tests"]
 addopts = "--cov=opskit --cov-report=term-missing --cov-fail-under=90 -m 'not network'"
 markers = [
-    "network: hits real external resolvers; opt-in, never gates CI (deselected by default)",
+    "network: hits real external endpoints (resolvers, TLS hosts); opt-in, never gates CI (deselected by default)",
 ]
 
 [tool.coverage.run]

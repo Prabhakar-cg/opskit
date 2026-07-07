@@ -47,6 +47,10 @@ Human output is colorized/tabular on a TTY and auto-plain when piped.
 | 5 | REFUSED |
 | 6 | TIMEOUT / no response |
 | 7 | PARTIAL (batch: at least one target failed) |
+| 8 | connection failed *(shared enum; used by tls/net categories)* |
+| 9 | TLS handshake failed *(tls)* |
+| 10 | certificate invalid *(tls)* |
+| 11 | certificate expiring soon *(tls)* |
 
 Batch rule: exit 0 only if every target succeeds; otherwise the most severe outcome's code (or 7
 when outcomes are mixed).
