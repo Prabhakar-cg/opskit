@@ -139,7 +139,7 @@ typeCheckingMode = "strict"
 testpaths = ["tests"]
 addopts = "--cov=opskit --cov-report=term-missing --cov-fail-under=90 -m 'not network'"
 markers = [
-    "network: hits real external resolvers; opt-in, never gates CI (deselected by default)",
+    "network: hits real external endpoints (resolvers, TLS hosts); opt-in, never gates CI (deselected by default)",
 ]
 
 [tool.coverage.run]

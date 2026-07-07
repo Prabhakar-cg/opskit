@@ -48,6 +48,11 @@ def check(
 carry certificate conditions — so an expired cert's full details are inspectable (FR-006).
 `raise_on_invalid=True` opts into exceptions for those too (US7 embedding).
 
+**SNI & validation identity** (as built): when `server_name` is given it is both sent as SNI
+*and* used as the identity for name validation — `check("192.0.2.10", server_name="a.corp")`
+verifies the `a.corp` identity on that IP. Without it, validation targets the host (IP SANs
+for IP targets), and SNI is omitted for IPs.
+
 ## net primitives
 
 ```python

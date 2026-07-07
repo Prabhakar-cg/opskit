@@ -79,21 +79,32 @@ def parse_certificate(cert: x509.Certificate) -> CertificateInfo:
     )
 
 
+def effective_name(target: TlsTarget) -> str:
+    """The identity validation checks: the SNI override when given, else the host."""
+    return target.server_name or target.host
+
+
 def match_hostname(target: TlsTarget, cert: x509.Certificate) -> bool:
     """RFC 6125 name matching: exact DNS-SAN, single left-most wildcard label, IP SANs.
 
-    No CN fallback — a certificate without a matching SAN does not cover the target.
+    Validation targets :func:`effective_name` — an explicit ``--sni`` names the vhost
+    identity being verified. No CN fallback: a certificate without a matching SAN does
+    not cover the target.
     """
     try:
         san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
     except x509.ExtensionNotFound:
         return False
-    if target.is_ip:
-        wanted = ipaddress.ip_address(target.host)
+    name = effective_name(target)
+    try:
+        wanted = ipaddress.ip_address(name)
+    except ValueError:
+        pass
+    else:
         return any(
             ip == wanted for ip in san_ext.value.get_values_for_type(x509.IPAddress)
         )
-    host = target.host.lower()
+    host = name.lower()
     return any(
         _dns_name_matches(pattern.lower(), host)
         for pattern in san_ext.value.get_values_for_type(x509.DNSName)
@@ -124,57 +135,62 @@ def _classify_verify_error(
 ) -> tuple[FindingCode, str, str | None]:
     """Map one OpenSSL verify error (errno, depth) to a finding triple."""
     where = "certificate" if depth == 0 else f"chain certificate (depth {depth})"
+    ca_hint = "pass the issuing root via --ca-file if this is a private PKI"
+    finding: tuple[FindingCode, str, str | None]
     if errno == X509_V_ERR_CERT_HAS_EXPIRED:
         message = (
             f"{where} expired on {leaf.not_after}"
             if depth == 0
             else f"{where} has expired"
         )
-        return FindingCode.EXPIRED, message, "renew the certificate"
-    if errno == X509_V_ERR_CERT_NOT_YET_VALID:
+        finding = (FindingCode.EXPIRED, message, "renew the certificate")
+    elif errno == X509_V_ERR_CERT_NOT_YET_VALID:
         message = (
             f"{where} is not valid before {leaf.not_before}"
             if depth == 0
             else f"{where} is not yet valid"
         )
-        return (
+        finding = (
             FindingCode.NOT_YET_VALID,
             message,
             "check the server clock and the certificate's validity window",
         )
-    if errno == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
-        return (
+    elif errno == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
+        finding = (
             FindingCode.SELF_SIGNED,
             "certificate is self-signed",
             "add it to a private CA bundle and pass --ca-file to trust it",
         )
-    if errno == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN:
-        return (
+    elif errno == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN:
+        finding = (
             FindingCode.UNTRUSTED_CHAIN,
             "chain ends in a root that is not in the trust store",
-            "pass the issuing root via --ca-file if this is a private PKI",
+            ca_hint,
         )
-    if errno in (
+    elif errno in (
         X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT,
         X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY,
         X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE,
     ):
         if chain_length <= 1 and not leaf.is_self_signed:
-            return (
+            finding = (
                 FindingCode.INCOMPLETE_CHAIN,
                 "server did not present the intermediate certificate(s)",
                 "configure the server to serve the full chain",
             )
-        return (
+        else:
+            finding = (
+                FindingCode.UNTRUSTED_CHAIN,
+                "certificate does not chain to a trusted authority",
+                ca_hint,
+            )
+    else:
+        finding = (
             FindingCode.UNTRUSTED_CHAIN,
-            "certificate does not chain to a trusted authority",
-            "pass the issuing root via --ca-file if this is a private PKI",
+            f"chain validation failed (OpenSSL verify error {errno} at depth {depth})",
+            None,
         )
-    return (
-        FindingCode.UNTRUSTED_CHAIN,
-        f"chain validation failed (OpenSSL verify error {errno} at depth {depth})",
-        None,
-    )
+    return finding
 
 
 def build_findings(
@@ -217,10 +233,11 @@ def build_findings(
                 "(legacy CN-only certificates fail modern validation)",
                 hint="reissue the certificate with SANs",
             )
-        mode = "IP address" if target.is_ip else "hostname"
+        name = effective_name(target)
+        mode = "IP address" if target.is_ip and name == target.host else "name"
         add(
             FindingCode.NAME_MISMATCH,
-            f"requested {mode} {target.host!r} is not covered; "
+            f"requested {mode} {name!r} is not covered; "
             f"certificate covers: {_cert_sans_summary(leaf)}",
             hint="check you are hitting the intended vhost (see --sni)",
         )
