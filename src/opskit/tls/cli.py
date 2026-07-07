@@ -116,7 +116,7 @@ def check(
     target: Annotated[
         Optional[str],
         typer.Argument(
-            help="host, host:port, IP, or [ipv6]:port (or use --input-file)."
+            help=r"host, host:port, IP, or \[ipv6]:port (or use --input-file)."
         ),
     ] = None,
     port: Annotated[
