@@ -5,6 +5,13 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.1](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.0...opskit-v0.1.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **ci:** cross-platform closed-port test; fix README badges ([#23](https://github.com/Prabhakar-cg/opskit/issues/23)) ([6736872](https://github.com/Prabhakar-cg/opskit/commit/673687205e0f6c205023951e998a76a6ac98c73c))
+
 ## 0.1.0 (2026-07-07)
 
 
