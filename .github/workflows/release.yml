@@ -3,11 +3,13 @@
 # Merging that PR cuts a tag + GitHub Release; publishing to PyPI then waits for manual approval
 # via the protected `pypi` environment and uses Trusted Publishing (OIDC, no tokens).
 #
-# ONE-TIME SETUP required before the first release (see docs/PLAN.md):
+# ONE-TIME SETUP (see docs/PLAN.md):
 #   - PyPI Trusted Publisher for this repo + workflow `release.yml` + environment `pypi`
 #   - GitHub environment `pypi` with required reviewers (the manual approval gate)
-#   - (recommended) a GitHub App token so full CI re-runs on the release PR; until then
-#     release-please uses GITHUB_TOKEN and CI does not run on the release PR.
+#   - GitHub App for release-please so its PR/commits trigger CI (the default GITHUB_TOKEN
+#     does not): create an App with contents:write + pull_requests:write, install it on the
+#     repo, then set the `RELEASE_APP_ID` repo variable and `RELEASE_APP_PRIVATE_KEY` secret.
+#     Until those exist the workflow falls back to GITHUB_TOKEN (CI won't run on the release PR).
 name: Release
 
 on:
@@ -29,9 +31,23 @@ jobs:
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
     steps:
+      # Mint a short-lived GitHub App token so release-please's PR/commits trigger CI (events
+      # from the default GITHUB_TOKEN don't). Skipped until the App is configured, in which case
+      # release-please falls back to GITHUB_TOKEN (current behavior — CI won't run on its PR).
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        if: ${{ vars.RELEASE_APP_ID != '' }}
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Scope the minted token to least privilege (release-please only needs these), even
+          # if the App installation grants more.
+          permission-contents: write
+          permission-pull-requests: write
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: rp
         with:
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
