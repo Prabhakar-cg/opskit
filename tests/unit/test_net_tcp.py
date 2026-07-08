@@ -47,11 +47,22 @@ def test_connect_success_reports_address_and_timing():
     server.close()
 
 
+def _closed_port() -> int:
+    """A loopback port that is closed (bound then released, never listened)."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = int(probe.getsockname()[1])
+    probe.close()
+    return port
+
+
 def test_connect_refused_on_closed_port():
-    server, port = _loopback_listener()
-    server.close()  # port now closed -> RST on connect
-    with pytest.raises(ConnectRefused) as excinfo:
-        connect("127.0.0.1", port, timeout=2.0)
+    # A closed loopback port refuses on Linux/macOS. Windows refuses a never-listened port
+    # (this pattern) but may *time out* on a port that was listen()ed then closed — so accept
+    # either "cannot connect" NetError. The precise refused mapping is asserted deterministically
+    # in test_refusal_wins_over_timeout_for_dual_stack.
+    with pytest.raises((ConnectRefused, ConnectTimeout)) as excinfo:
+        connect("127.0.0.1", _closed_port(), timeout=1.0, retries=0)
     assert excinfo.value.hint
 
 
