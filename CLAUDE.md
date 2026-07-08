@@ -111,6 +111,22 @@ Apply these from the start of every new category (`net`/`tls`/`ad`); each one co
   entry in `src/opskit/<cat>/README.md`, with that README linked from the root README's Commands
   table. A new command therefore isn't "done" until its docs exist — the gate enforces it.
 
+## Development environment (WSL + VS Code)
+
+The repo is WSL-hosted (`/home/vscode/opskit` on Ubuntu, edited from VS Code via the **WSL
+Remote** extension). The dev setup is version-controlled so the editor enforces the same gates
+as CI:
+
+- **`.venv`** is the uv-managed environment (`uv sync --extra dev`); `.vscode/settings.json`
+  pins the interpreter to it.
+- **`.vscode/` is tracked** (the `.gitignore` entry is intentionally commented out). It wires
+  Ruff (format + fix on save), the mypy and pyright/Pylance checkers, and pytest to the venv,
+  reading tool config from `pyproject.toml` so in-editor feedback matches CI. `extensions.json`
+  recommends the matching extensions.
+- **The editor only exercises Linux.** VS-Code-in-WSL runs everything on Ubuntu; Windows/macOS
+  socket/TLS/path behavior is invisible locally — rely on the CI matrix and the loopback/mock
+  layers (see the "green PR is not a green `main`" rule above).
+
 ## Tooling & commands (run via uv, from the repo root)
 
 ```bash
