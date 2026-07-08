@@ -45,9 +45,12 @@ jobs:
     steps:
       - id: set
         shell: bash
+        # PRs test all three OSes on the min+max Python (catches OS-specific bugs pre-merge —
+        # socket/TLS/filesystem behavior differs on Windows/macOS and is invisible on ubuntu).
+        # main additionally sweeps every Python version.
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo 'matrix={"os":["ubuntu-latest"],"python":["3.9","3.13"]}' >> "$GITHUB_OUTPUT"
+            echo 'matrix={"os":["ubuntu-latest","macos-latest","windows-latest"],"python":["3.9","3.13"]}' >> "$GITHUB_OUTPUT"
           else
             echo 'matrix={"os":["ubuntu-latest","macos-latest","windows-latest"],"python":["3.9","3.10","3.11","3.12","3.13"]}' >> "$GITHUB_OUTPUT"
           fi
