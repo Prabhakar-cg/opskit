@@ -91,6 +91,13 @@ Apply these from the start of every new category (`net`/`tls`/`ad`); each one co
 - **Test gotcha (CodeQL):** don't assert `"<host.tld>" in output` — CodeQL's
   `py/incomplete-url-substring-sanitization` flags it as a URL-host check. Assert on record
   values / IPs / non-hostname substrings instead.
+- **A green PR is not a green `main`.** CI runs all three OSes on PRs but only the min+max Python;
+  `main` sweeps every Python version. **Socket / TLS / filesystem / path / subprocess behavior
+  differs across OSes** (e.g. a closed loopback port *refuses* on Linux but *times out* on Windows;
+  trust stores, IPv6, and path separators differ) — write those tests to tolerate platform variance
+  (assert the typed error *class family*, not one exact subclass) and lean on the loopback/mock
+  layers. If a `main`-only matrix leg fails after merge, reproduce by widening the PR matrix, not by
+  guessing. The `net`/`tls` refused-vs-timeout classification is the canonical example.
 
 ## Testing
 
