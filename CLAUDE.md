@@ -106,6 +106,10 @@ Apply these from the start of every new category (`net`/`tls`/`ad`); each one co
   loopback DNS server** (real sockets: timeout, REFUSED, TC-bit→TCP, latency, split-horizon).
 - Real-network tests are `@pytest.mark.network` and **must never gate CI** (skipped by default).
 - Cover the tightened-network edge cases listed in the spec/PLAN.
+- **Docs-coverage gate (Art. II):** `tests/unit/test_docs_coverage.py` walks the Typer app and
+  fails unless every registered command has help text **and** a matching `opskit <cat> <cmd>`
+  entry in `src/opskit/<cat>/README.md`, with that README linked from the root README's Commands
+  table. A new command therefore isn't "done" until its docs exist — the gate enforces it.
 
 ## Tooling & commands (run via uv, from the repo root)
 
