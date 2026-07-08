@@ -1,0 +1,12 @@
+{
+  // Extensions that make the editor match opskit's gates (Ruff / mypy / pyright) and
+  // its WSL-hosted workflow. VS Code prompts to install these on first open.
+  "recommendations": [
+    "ms-vscode-remote.remote-wsl",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "ms-python.mypy-type-checker",
+    "anthropic.claude-code"
+  ]
+}

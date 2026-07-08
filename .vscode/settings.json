@@ -1,0 +1,43 @@
+{
+  // Use the project's uv-managed virtualenv so the editor runs the same tools as CI.
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.terminal.activateEnvironment": true,
+
+  // Ruff owns format + lint + import sorting (constitution Art. II). Format and
+  // auto-fix on save; run the venv's Ruff so the pinned version matches CI.
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+  "ruff.importStrategy": "fromEnvironment",
+
+  // Pylance reads [tool.pyright] from pyproject.toml (pythonVersion 3.9, strict on src),
+  // so in-editor type errors match the pyright CI leg without extra config here.
+  "python.analysis.autoImportCompletions": true,
+
+  // mypy --strict via the venv's mypy (reads [tool.mypy]: python_version 3.10, files=src).
+  "mypy-type-checker.importStrategy": "fromEnvironment",
+
+  // Test Explorer runs pytest; addopts (coverage, -m 'not network') come from pyproject.toml.
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"],
+
+  // Keep generated/cache dirs out of the file tree and search results.
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.egg-info": true,
+    "**/.pytest_cache": true,
+    "**/.mypy_cache": true,
+    "**/.ruff_cache": true
+  },
+  "search.exclude": {
+    "**/.venv": true,
+    "**/htmlcov": true,
+    "**/coverage.xml": true
+  }
+}
