@@ -36,7 +36,7 @@ dependencies = [
     "tomli>=2 ; python_version < '3.11'",
     # TLS category: handshake/chain retrieval + certificate parsing (PyCA-maintained).
     "pyopenssl>=24,<27",
-    "cryptography>=48.0.1,<49",  # 48.0.1 fixes GHSA-537c-gmf6-5ccf
+    "cryptography>=48.0.1,<50",  # 48.0.1 fixes GHSA-537c-gmf6-5ccf
 ]
 
 [project.urls]
