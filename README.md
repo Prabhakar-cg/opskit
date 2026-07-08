@@ -8,7 +8,7 @@ Cross-platform diagnostics for engineers — one toolkit, every OS.
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13462/badge)](https://www.bestpractices.dev/projects/13462)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Prabhakar-cg_opskit&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Prabhakar-cg_opskit)
 [![Known Vulnerabilities](https://snyk.io/test/github/Prabhakar-cg/opskit/badge.svg)](https://snyk.io/test/github/Prabhakar-cg/opskit)
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Prabhakar-cg/opskit?utm_source=oss&utm_medium=github&utm_campaign=Prabhakar-cg%2Fopskit&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![Reviewed by CodeRabbit](https://img.shields.io/badge/reviewed%20by-CodeRabbit-FF570A?labelColor=171717)](https://coderabbit.ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%20|%203.10%20|%203.11%20|%203.12%20|%203.13-blue)](pyproject.toml)
 
@@ -17,7 +17,7 @@ troubleshooting commands that behave **identically on Windows, macOS, and Linux*
 juggling `nslookup` vs `dig` vs PowerShell cmdlets. It's a **CLI *and* an importable Python
 library**, is pure-Python (nothing to shell out to), and never phones home.
 
-> ⚠️ **Early development.** v1 ships **DNS diagnostics**; network / TLS / AD categories follow.
+> ⚠️ **Early development.** Ships **DNS** and **TLS** diagnostics today; network / AD categories follow.
 
 ---
 
