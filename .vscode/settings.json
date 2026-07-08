@@ -22,10 +22,12 @@
   // mypy --strict via the venv's mypy (reads [tool.mypy]: python_version 3.10, files=src).
   "mypy-type-checker.importStrategy": "fromEnvironment",
 
-  // Test Explorer runs pytest; addopts (coverage, -m 'not network') come from pyproject.toml.
+  // Test Explorer runs pytest. --no-cov disables coverage for editor-driven runs: the
+  // pyproject addopts carry --cov-fail-under=90, which would make a single-test run in the
+  // Test Explorer spuriously "fail". CI still enforces coverage via addopts.
   "python.testing.pytestEnabled": true,
   "python.testing.unittestEnabled": false,
-  "python.testing.pytestArgs": ["tests"],
+  "python.testing.pytestArgs": ["tests", "--no-cov"],
 
   // Keep generated/cache dirs out of the file tree and search results.
   "files.exclude": {
@@ -33,11 +35,15 @@
     "**/*.egg-info": true,
     "**/.pytest_cache": true,
     "**/.mypy_cache": true,
-    "**/.ruff_cache": true
+    "**/.ruff_cache": true,
+    "**/.nox": true,
+    "**/.coverage": true
   },
   "search.exclude": {
     "**/.venv": true,
+    "**/.nox": true,
     "**/htmlcov": true,
-    "**/coverage.xml": true
+    "**/coverage.xml": true,
+    "**/.coverage": true
   }
 }
