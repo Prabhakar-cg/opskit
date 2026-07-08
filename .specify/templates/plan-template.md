@@ -57,6 +57,22 @@ documented justification.
 - [ ] Release/packaging path keeps **Trusted Publishing + SBOM + attestations** intact.
 - [ ] `SECURITY.md`, branch protection, and Dependabot remain in force.
 
+**New-category cross-cutting checklist** (from CLAUDE.md "Cross-cutting rules for new
+categories" — each item cost rework on `dns`; confirm the plan bakes them in up front):
+- [ ] CLI module (`src/opskit/<cat>/cli.py`) uses **eager** annotations + `Optional[X]` — no
+      `from __future__ import annotations` — so Typer keeps `Annotated` metadata on Python 3.9.
+- [ ] Every resolver/network/user-supplied string is `rich.markup.escape()`d before markup
+      output; consoles are built via `make_console` (honors `NO_COLOR`).
+- [ ] Network code normalizes raw `OSError`/timeouts into the shared typed hierarchy with an
+      actionable hint; each error type owns its exit code; `core` stays category-agnostic.
+- [ ] Batchable commands process **every** target, aggregate exit codes (0 all-ok / uniform
+      class / else `7` PARTIAL), and emit a JSON envelope per item including failures (Art. IX).
+- [ ] Docs-coverage gate satisfied: each command documented in `src/opskit/<cat>/README.md`,
+      that README linked from the root README's Commands table (`tests/unit/test_docs_coverage.py`).
+- [ ] Cross-OS behavior (socket/TLS/filesystem/path) tested tolerant of platform variance
+      (assert the error *class family*, not one subclass); loopback/mock layers cover it — don't
+      rely on the reduced PR matrix ("a green PR is not a green `main`").
+
 ## Project Structure
 
 ### Documentation (this feature)
