@@ -24,14 +24,15 @@ def _free_port() -> int:
     return port
 
 
-def test_busy_port_raises_port_in_use():
+def test_busy_port_raises_port_in_use(entered_listener):
     # Occupy the port with a first Listener: it binds the exact wildcard
     # addresses the second attempt needs, so the collision is guaranteed on
     # every platform (a loopback-bound holder would NOT collide with a
     # wildcard bind on Windows).
-    port = _free_port()
-    with Listener(port), pytest.raises(PortInUse) as excinfo, Listener(port):
-        pass
+    with entered_listener() as holder:
+        port = holder.session.port
+        with pytest.raises(PortInUse) as excinfo, Listener(port):
+            pass
     assert excinfo.value.exit_code == 12
     assert excinfo.value.hint
 
@@ -72,9 +73,9 @@ def test_invalid_configuration_is_usage_error():
         Listener(8080, max_events=0)
 
 
-def test_max_events_stop_and_event_metadata():
-    port = _free_port()
-    with Listener(port, max_events=1) as listener:
+def test_max_events_stop_and_event_metadata(entered_listener):
+    with entered_listener(max_events=1) as listener:
+        port = listener.session.port
         assert listener.session.bound_addresses  # bound immediately after entry
 
         def _poke():
@@ -101,8 +102,8 @@ def test_max_events_stop_and_event_metadata():
     assert "super-secret-payload" not in repr(events) + repr(session)
 
 
-def test_max_duration_expiry_with_zero_events():
-    with Listener(_free_port(), max_duration=0.3) as listener:
+def test_max_duration_expiry_with_zero_events(entered_listener):
+    with entered_listener(max_duration=0.3) as listener:
         start = time.monotonic()
         events = list(listener.events())
         elapsed = time.monotonic() - start
@@ -112,9 +113,9 @@ def test_max_duration_expiry_with_zero_events():
     assert listener.session.events_received == 0
 
 
-def test_udp_datagram_event_metadata_only():
-    port = _free_port()
-    with Listener(port, protocol=Protocol.UDP, max_events=1) as listener:
+def test_udp_datagram_event_metadata_only(entered_listener):
+    with entered_listener(protocol=Protocol.UDP, max_events=1) as listener:
+        port = listener.session.port
 
         def _send():
             client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -131,26 +132,27 @@ def test_udp_datagram_event_metadata_only():
     assert listener.session.protocol is Protocol.UDP
 
 
-def test_keyboard_interrupt_finalizes_then_propagates(monkeypatch):
-    def _interrupt(self, timeout=None):
-        raise KeyboardInterrupt
+def test_keyboard_interrupt_finalizes_then_propagates(monkeypatch, entered_listener):
+    with entered_listener() as listener:
 
-    monkeypatch.setattr(selectors.DefaultSelector, "select", _interrupt)
-    with Listener(_free_port()) as listener:
+        def _interrupt(self, timeout=None):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(selectors.DefaultSelector, "select", _interrupt)
         with pytest.raises(KeyboardInterrupt):
             list(listener.events())
         assert listener.session.stop_reason is StopReason.INTERRUPT
         assert listener.session.stopped_at is not None
 
 
-def test_early_exit_without_events_finalizes_as_interrupt():
-    with Listener(_free_port()) as listener:
+def test_early_exit_without_events_finalizes_as_interrupt(entered_listener):
+    with entered_listener() as listener:
         pass  # never iterated events()
     assert listener.session.stop_reason is StopReason.INTERRUPT
 
 
-def test_session_to_dict_shape():
-    with Listener(_free_port(), max_events=5, max_duration=60.0) as listener:
+def test_session_to_dict_shape(entered_listener):
+    with entered_listener(max_events=5, max_duration=60.0) as listener:
         payload = listener.session.to_dict()
     assert payload["max_events"] == 5
     assert payload["max_duration_s"] == 60.0

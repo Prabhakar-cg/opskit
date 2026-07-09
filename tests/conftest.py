@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import ipaddress
+import socket
 
 import pytest
 from cryptography import x509
@@ -12,6 +14,8 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 from opskit.dns.models import DnsRecord, RecordType
+from opskit.net.errors import BindPermissionDenied, PortInUse
+from opskit.net.listener import Listener
 
 
 class MockResolver:
@@ -78,3 +82,41 @@ def make_cert():
         return builder.sign(key, hashes.SHA256())
 
     return _make
+
+
+@pytest.fixture
+def entered_listener():
+    """Context-manager factory: an already-bound net Listener on a fresh port.
+
+    CI's Windows runners reserve large ephemeral port ranges (WinNAT excluded
+    port ranges); a wildcard bind on a port inside one fails with WinError
+    10013 even unprivileged, surfacing as BindPermissionDenied. Retrying on a
+    fresh port keeps listener tests deterministic instead of failing on the
+    runner's port lottery. Read the bound port off ``listener.session.port``.
+    """
+
+    def _fresh_port() -> int:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+        probe.close()
+        return port
+
+    @contextlib.contextmanager
+    def _entered(**kwargs):
+        last: Exception | None = None
+        for _ in range(5):
+            listener = Listener(_fresh_port(), **kwargs)
+            try:
+                listener.__enter__()
+            except (PortInUse, BindPermissionDenied) as exc:
+                last = exc
+                continue
+            try:
+                yield listener
+            finally:
+                listener.__exit__(None, None, None)
+            return
+        pytest.skip(f"no bindable listener port on this runner: {last}")
+
+    return _entered
