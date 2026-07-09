@@ -5,6 +5,18 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.2](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.1...opskit-v0.1.2) (2026-07-09)
+
+
+### Features
+
+* **net:** network connectivity diagnostics (opskit net) ([#31](https://github.com/Prabhakar-cg/opskit/issues/31)) ([eb74673](https://github.com/Prabhakar-cg/opskit/commit/eb74673d4246bd33686123dce70cdfe79d8de239))
+
+
+### Documentation
+
+* **speckit:** gate new-category cross-cutting rules at plan time ([#29](https://github.com/Prabhakar-cg/opskit/issues/29)) ([3e1d631](https://github.com/Prabhakar-cg/opskit/commit/3e1d631691142da2d235295a496f1c0ec6244813))
+
 ## [0.1.1](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.0...opskit-v0.1.1) (2026-07-08)
 
 
