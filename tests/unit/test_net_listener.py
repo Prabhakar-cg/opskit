@@ -25,8 +25,10 @@ def _free_port() -> int:
 
 
 def test_busy_port_raises_port_in_use():
+    # Loopback-bound is enough: the Listener's wildcard IPv4 bind on the same
+    # port still collides (and CodeQL flags wildcard binds in tests).
     holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    holder.bind(("", 0))
+    holder.bind(("127.0.0.1", 0))
     holder.listen(1)
     port = int(holder.getsockname()[1])
     try:

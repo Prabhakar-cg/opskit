@@ -12,7 +12,7 @@ import errno
 import socket
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 from opskit.net.errors import (
     ConnectRefused,
@@ -82,9 +82,12 @@ def udp_probe(
     )
     for _ in range(retries + 1):
         for candidate in candidates:
-            sock = socket.socket(candidate.af, socket.SOCK_DGRAM)
-            sock.settimeout(timeout)
             try:
+                sock = socket.socket(candidate.af, socket.SOCK_DGRAM)
+            except OSError as exc:  # e.g. EMFILE/EAFNOSUPPORT — normalize (Art. VI)
+                _raise_normalized(host, port, exc)
+            try:
+                sock.settimeout(timeout)
                 sock.connect(candidate.sockaddr)
                 start = time.perf_counter()
                 sock.send(b"")  # zero-byte probe: deliverable, no payload (FR-018)
@@ -117,7 +120,7 @@ def udp_probe(
     )
 
 
-def _raise_normalized(host: str, port: int, exc: OSError) -> None:
+def _raise_normalized(host: str, port: int, exc: OSError) -> NoReturn:
     """Re-raise an unexpected socket ``OSError`` as a typed NetError (Art. VI)."""
     if exc.errno in _UNREACHABLE_ERRNOS:
         raise ConnectRefused(

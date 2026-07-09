@@ -29,7 +29,7 @@ back the `@pytest.mark.network` smoke suite only — CI relies on the loopback s
 | US1 | unresolvable | `uv run opskit net check no-such.invalid:443; echo $?` | resolution failure + `opskit dns` hint; exit 3 |
 | US1 | missing port | `uv run opskit net check example.com; echo $?` | usage error before any network I/O; exit 2 |
 | US2 | UDP closed | `uv run opskit net check 127.0.0.1:9 --udp; echo $?` | "closed" (port-unreachable signal); exit 8 |
-| US2 | UDP open (paired) | `uv run opskit net listen 5300 --udp --max-events 1 &` then `uv run opskit net check 127.0.0.1:5300 --udp` | listener reports the datagram's peer metadata (definitive service-side answer); check is honest — silence alone is never "open" |
+| US2 | UDP inconclusive (paired) | `uv run opskit net listen 5300 --udp --max-events 1 &` then `uv run opskit net check 127.0.0.1:5300 --udp` | listener reports the datagram's peer metadata (definitive service-side answer); `check` stays inconclusive because the receive-only listener never replies — silence alone is never "open" |
 | US2 | UDP inconclusive *(net)* | `uv run opskit net check 203.0.113.1:500 --udp --timeout 2; echo $?` | "no response — open or filtered (inconclusive)" + listener hint; exit 6 |
 | US3 | probe | `uv run opskit net probe 127.0.0.1:PORT -c 10` (against a local listener) | 10 per-attempt lines + summary with attempts/successes/failures and plausible min/avg/max |
 | US3 | watch | `uv run opskit net check 127.0.0.1:PORT --watch 5s` | re-runs; flags open→refused when the listener is stopped mid-watch |

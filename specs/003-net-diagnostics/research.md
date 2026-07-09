@@ -200,7 +200,7 @@ macOS/Windows runners).
 
 **Decision**: One Typer sub-app `opskit net` with three commands:
 
-- **`opskit net check [TARGETS]... `** — variadic positional targets (`host:port`,
+- **`opskit net check [TARGETS]...`** — variadic positional targets (`host:port`,
   `[v6]:port`), plus `-p/--port` (applies to any target given without a port; must agree
   with shorthand), `-u/--udp` (protocol switch, default TCP per FR-004), `-4/--ipv4` /
   `-6/--ipv6` (mutually exclusive family restriction), `--timeout` 5.0 / `--retries` 2,

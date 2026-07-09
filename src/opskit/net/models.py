@@ -298,6 +298,8 @@ class ListenerSession:
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable mapping matching the session envelope's result."""
         return {
+            "protocol": self.protocol.value,
+            "port": self.port,
             "bound_addresses": list(self.bound_addresses),
             "started_at": self.started_at,
             "stopped_at": self.stopped_at,

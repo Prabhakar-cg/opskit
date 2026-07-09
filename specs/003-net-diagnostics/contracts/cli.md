@@ -155,7 +155,8 @@ parsed target + effective controls. Shapes per [data-model.md](../data-model.md)
  "result": {"kind": "event", "index": 1, "peer_address": "198.51.100.23", "peer_port": 52114,
              "family": "ipv4", "timestamp": "2026-07-09T10:15:02.114Z"}, "error": null, "elapsed_ms": 4211.0}
 {"schema_version": "1", "command": "net.listen", "query": {"port": 8080, "protocol": "tcp"},
- "result": {"kind": "session", "bound_addresses": ["0.0.0.0", "::"], "started_at": "…",
+ "result": {"kind": "session", "protocol": "tcp", "port": 8080,
+             "bound_addresses": ["0.0.0.0", "::"], "started_at": "…",
              "stopped_at": "…", "stop_reason": "interrupt", "events_received": 1,
              "max_duration_s": null, "max_events": null}, "error": null, "elapsed_ms": 30412.0}
 ```

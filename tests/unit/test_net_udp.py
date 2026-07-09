@@ -108,6 +108,18 @@ def test_unreachable_errno_normalizes_to_connect_refused(monkeypatch):
         udp.udp_probe("far.example", 5300, timeout=0.5)
 
 
+def test_socket_creation_failure_normalizes_to_net_error(monkeypatch):
+    def _no_socket(af, kind):
+        raise OSError(errno.EMFILE, "too many open files")
+
+    monkeypatch.setattr(udp, "resolve", lambda *a, **k: [_CANDIDATE])
+    monkeypatch.setattr(udp.socket, "socket", _no_socket)
+    with pytest.raises(NetError) as excinfo:
+        udp.udp_probe("busy.example", 5300, timeout=0.5)
+    assert not isinstance(excinfo.value, (UdpClosed, UdpInconclusive))
+    assert excinfo.value.hint  # raw OSError never escapes (Art. VI)
+
+
 def test_other_oserror_normalizes_to_net_error(monkeypatch):
     def _invalid():
         raise OSError(errno.EINVAL, "invalid argument")
