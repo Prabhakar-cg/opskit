@@ -9,8 +9,8 @@ Cross-platform diagnostics for engineers — one toolkit, every OS.
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Prabhakar-cg_opskit&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Prabhakar-cg_opskit)
 [![Known Vulnerabilities](https://snyk.io/test/github/Prabhakar-cg/opskit/badge.svg)](https://snyk.io/test/github/Prabhakar-cg/opskit)
 [![Reviewed by CodeRabbit](https://img.shields.io/badge/reviewed%20by-CodeRabbit-FF570A?labelColor=171717)](https://coderabbit.ai)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9%20|%203.10%20|%203.11%20|%203.12%20|%203.13-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Prabhakar-cg/opskit/blob/main/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%20|%203.10%20|%203.11%20|%203.12%20|%203.13-blue)](https://github.com/Prabhakar-cg/opskit/blob/main/pyproject.toml)
 
 **opskit** gives engineers, developers, and operations teams one consistent set of read-only
 troubleshooting commands that behave **identically on Windows, macOS, and Linux** — so you stop
@@ -56,9 +56,9 @@ Each command group is self-contained and documented in its own README next to th
 
 | Command group | What it does | Docs |
 |---|---|---|
-| `opskit dns` | Read-only DNS diagnostics — forward/reverse lookups, multi-resolver diff, iterative trace, watch | [dns/README.md](src/opskit/dns/README.md) |
-| `opskit tls` | TLS verification — layered endpoint checks, certificate/chain inspection, expiry warnings, private-PKI trust | [tls/README.md](src/opskit/tls/README.md) |
-| `opskit net` | Network reachability — TCP/UDP port checks, ping-style probes, temporary metadata-only listener | [net/README.md](src/opskit/net/README.md) |
+| `opskit dns` | Read-only DNS diagnostics — forward/reverse lookups, multi-resolver diff, iterative trace, watch | [dns/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/dns/README.md) |
+| `opskit tls` | TLS verification — layered endpoint checks, certificate/chain inspection, expiry warnings, private-PKI trust | [tls/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/tls/README.md) |
+| `opskit net` | Network reachability — TCP/UDP port checks, ping-style probes, temporary metadata-only listener | [net/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/net/README.md) |
 | `opskit ad` | Directory (LDAP/AD) queries | _planned_ |
 
 Quick taste of the DNS group:
@@ -70,7 +70,7 @@ opskit dns reverse 8.8.8.8                       # PTR (IP → hostname)
 opskit dns lookup example.com --diff -s 1.1.1.1 -s 8.8.8.8   # compare resolvers
 ```
 
-See **[the DNS command reference](src/opskit/dns/README.md)** for every option, mode, and the
+See **[the DNS command reference](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/dns/README.md)** for every option, mode, and the
 importable Python API.
 
 ## Why opskit
@@ -98,8 +98,8 @@ Every command shares one output contract:
 ## Development
 
 Built to a high bar: `src/` layout, [uv](https://docs.astral.sh/uv/), Ruff, `mypy --strict` +
-pyright, pytest with ≥90% coverage, and a hardened CI/CD pipeline (see [`docs/PLAN.md`](docs/PLAN.md)
-and the project constitution in [`.specify/memory/constitution.md`](.specify/memory/constitution.md)).
+pyright, pytest with ≥90% coverage, and a hardened CI/CD pipeline (see [`docs/PLAN.md`](https://github.com/Prabhakar-cg/opskit/blob/main/docs/PLAN.md)
+and the project constitution in [`.specify/memory/constitution.md`](https://github.com/Prabhakar-cg/opskit/blob/main/.specify/memory/constitution.md)).
 
 ```bash
 uv sync --extra dev
@@ -110,15 +110,15 @@ uv run pytest                            # tests (coverage ≥ 90%)
 ```
 
 These are exactly the gates CI runs on every pull request — see
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+[`.github/workflows/ci.yml`](https://github.com/Prabhakar-cg/opskit/blob/main/.github/workflows/ci.yml).
 
 Contributions go through PRs into a protected `main` (squash-merge, Conventional Commits).
 
 ## Security
 
-Report vulnerabilities privately — see [SECURITY.md](SECURITY.md). Every PR is gated by a full
+Report vulnerabilities privately — see [SECURITY.md](https://github.com/Prabhakar-cg/opskit/blob/main/SECURITY.md). Every PR is gated by a full
 scanner suite (pip-audit, Ruff `S`, CodeQL, secret scanning, dependency review, SonarCloud, Snyk).
 
 ## License
 
-[MIT](LICENSE) © `prabhakar-cg`. Provided as-is, without warranty.
+[MIT](https://github.com/Prabhakar-cg/opskit/blob/main/LICENSE) © `prabhakar-cg`. Provided as-is, without warranty.
