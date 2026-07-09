@@ -9,7 +9,7 @@ import types
 import pytest
 
 from opskit.core.errors import UsageError
-from opskit.net import Listener, api, check, probe
+from opskit.net import api, check, probe
 from opskit.net.errors import (
     ConnectRefused,
     ConnectTimeout,
@@ -231,7 +231,7 @@ def test_verdict_for_generic_net_error_defaults_to_timeout():
     assert api.verdict_for(NetError("odd")) is Verdict.TIMEOUT
 
 
-def test_python_api_usage_example_runs_silently(capsys):
+def test_python_api_usage_example_runs_silently(capsys, entered_listener):
     """The contracts/python-api.md flow works against loopback; the library never prints."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(("127.0.0.1", 0))
@@ -259,7 +259,7 @@ def test_python_api_usage_example_runs_silently(capsys):
         server.close()
         thread.join(timeout=2)
 
-    with Listener(_free_port(), protocol=Protocol.TCP, max_events=1) as listener:
+    with entered_listener(protocol=Protocol.TCP, max_events=1) as listener:
         peer_port = listener.session.port
 
         def _poke():

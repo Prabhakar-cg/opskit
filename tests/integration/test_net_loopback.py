@@ -18,7 +18,7 @@ import pytest
 from typer.testing import CliRunner
 
 from opskit.cli import app
-from opskit.net import Listener, check, probe
+from opskit.net import check, probe
 from opskit.net.errors import (
     ConnectRefused,
     ConnectTimeout,
@@ -176,13 +176,15 @@ def test_probe_survives_listener_stopping_mid_run(tcp_listener):
 # --- US5: listener <-> check pairing ---
 
 
-def test_listener_check_pairing_tcp(free_port):
+def test_listener_check_pairing_tcp(entered_listener):
     outcomes = {}
 
-    def _probe_side():
-        outcomes["result"] = check(f"127.0.0.1:{free_port}", timeout=2.0)
+    with entered_listener(protocol=Protocol.TCP, max_events=1) as listener:
+        port = listener.session.port
 
-    with Listener(free_port, protocol=Protocol.TCP, max_events=1) as listener:
+        def _probe_side():
+            outcomes["result"] = check(f"127.0.0.1:{port}", timeout=2.0)
+
         prober = threading.Thread(target=_probe_side, daemon=True)
         prober.start()
         events = list(listener.events())
@@ -198,23 +200,25 @@ def test_listener_check_pairing_tcp(free_port):
     assert session.events_received == 1
 
 
-def test_listener_check_pairing_udp(free_port):
+def test_listener_check_pairing_udp(entered_listener):
     outcomes = {}
 
-    def _probe_side():
-        # The listener never replies, so the honest verdict is inconclusive —
-        # but the datagram must still arrive and be reported as metadata.
-        try:
-            check(
-                f"127.0.0.1:{free_port}",
-                protocol=Protocol.UDP,
-                timeout=0.5,
-                retries=0,
-            )
-        except (UdpClosed, UdpInconclusive) as exc:
-            outcomes["error"] = exc
+    with entered_listener(protocol=Protocol.UDP, max_events=1) as listener:
+        port = listener.session.port
 
-    with Listener(free_port, protocol=Protocol.UDP, max_events=1) as listener:
+        def _probe_side():
+            # The listener never replies, so the honest verdict is inconclusive —
+            # but the datagram must still arrive and be reported as metadata.
+            try:
+                check(
+                    f"127.0.0.1:{port}",
+                    protocol=Protocol.UDP,
+                    timeout=0.5,
+                    retries=0,
+                )
+            except (UdpClosed, UdpInconclusive) as exc:
+                outcomes["error"] = exc
+
         prober = threading.Thread(target=_probe_side, daemon=True)
         prober.start()
         events = list(listener.events())
@@ -226,30 +230,50 @@ def test_listener_check_pairing_udp(free_port):
     assert listener.session.events_received == 1
 
 
-def test_listener_zero_event_expiry_exits_6(free_port):
-    result = runner.invoke(
-        app, ["net", "listen", str(free_port), "--max-duration", "300ms"]
-    )
+def _alloc_port() -> int:
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = int(probe.getsockname()[1])
+    probe.close()
+    return port
+
+
+def _invoke_listen(extra_args, *, before=None, attempts=5):
+    """Invoke `net listen` on a fresh port, retrying past Windows excluded
+    port ranges (a wildcard bind there exits 12/13 through no fault of ours)."""
+    for _ in range(attempts):
+        port = _alloc_port()
+        thread = before(port) if before is not None else None
+        result = runner.invoke(app, ["net", "listen", str(port), *extra_args])
+        if thread is not None:
+            thread.join(timeout=3)
+        if result.exit_code not in (12, 13):
+            return result
+    pytest.skip("no bindable listener port on this runner")
+
+
+def test_listener_zero_event_expiry_exits_6():
+    result = _invoke_listen(["--max-duration", "300ms"])
     assert result.exit_code == 6
 
 
-def test_listener_max_events_via_cli_exits_0(free_port):
-    def _poke():
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            try:
-                client = socket.create_connection(("127.0.0.1", free_port), timeout=0.3)
-                client.close()
-                return
-            except OSError:
-                time.sleep(0.05)  # listener may not have bound yet
+def test_listener_max_events_via_cli_exits_0():
+    def _start_poker(port):
+        def _poke():
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                try:
+                    client = socket.create_connection(("127.0.0.1", port), timeout=0.3)
+                    client.close()
+                    return
+                except OSError:
+                    time.sleep(0.05)  # listener may not have bound yet
 
-    poker = threading.Thread(target=_poke, daemon=True)
-    poker.start()
-    result = runner.invoke(
-        app, ["net", "listen", str(free_port), "--max-events", "1", "--jsonl"]
-    )
-    poker.join(timeout=3)
+        poker = threading.Thread(target=_poke, daemon=True)
+        poker.start()
+        return poker
+
+    result = _invoke_listen(["--max-events", "1", "--jsonl"], before=_start_poker)
     assert result.exit_code == 0
     lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
     assert lines[-1]["result"]["kind"] == "session"
@@ -257,7 +281,7 @@ def test_listener_max_events_via_cli_exits_0(free_port):
     assert lines[-1]["result"]["events_received"] == 1
 
 
-def test_listener_interrupt_stops_cleanly_with_summary(free_port, monkeypatch):
+def test_listener_interrupt_stops_cleanly_with_summary(monkeypatch):
     original_select = selectors.DefaultSelector.select
     calls = {"n": 0}
 
@@ -268,7 +292,7 @@ def test_listener_interrupt_stops_cleanly_with_summary(free_port, monkeypatch):
         return original_select(self, timeout)
 
     monkeypatch.setattr(selectors.DefaultSelector, "select", _interrupt_second)
-    result = runner.invoke(app, ["net", "listen", str(free_port), "--no-color"])
+    result = _invoke_listen(["--no-color"])
     assert result.exit_code == 0  # Ctrl-C is a clean stop (R4)
     assert "listener summary" in result.stdout
     assert "stopped: interrupt" in result.stdout
