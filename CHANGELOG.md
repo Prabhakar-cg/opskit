@@ -5,6 +5,13 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.3](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.2...opskit-v0.1.3) (2026-07-09)
+
+
+### Documentation
+
+* **readme:** use absolute GitHub URLs so links render on PyPI ([#32](https://github.com/Prabhakar-cg/opskit/issues/32)) ([e9aa147](https://github.com/Prabhakar-cg/opskit/commit/e9aa147cca3759251e774455b479a278cf96c19e))
+
 ## [0.1.2](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.1...opskit-v0.1.2) (2026-07-09)
 
 
