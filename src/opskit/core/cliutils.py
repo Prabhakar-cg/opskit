@@ -8,6 +8,7 @@ exit-code derivation, JSON-envelope emission, and the ``--watch`` loop. Imports 
 from __future__ import annotations
 
 import json
+import sys
 import time
 from collections.abc import Callable, Sequence
 from datetime import datetime
@@ -27,18 +28,34 @@ _T = TypeVar("_T")
 ActionResult = tuple[ExitCode, str]
 
 
-def read_input_file(path: Path) -> list[str]:
-    """Read targets from a file, one per line, ignoring blanks and ``#`` comments."""
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise UsageError(f"cannot read input file: {path}") from exc
+def _filter_target_lines(raw: str) -> list[str]:
+    """Keep non-blank, non-``#``-comment lines, stripped, in order."""
     targets: list[str] = []
     for line in raw.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             targets.append(stripped)
     return targets
+
+
+def read_input_file(path: Path) -> list[str]:
+    """Read targets from a file, one per line, ignoring blanks and ``#`` comments."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise UsageError(f"cannot read input file: {path}") from exc
+    return _filter_target_lines(raw)
+
+
+def read_input_source(path: Path) -> list[str]:
+    """Read targets from ``path``, or from stdin when the path is ``-``.
+
+    Both sources apply the same filtering: one target per line, blanks and ``#``
+    comments ignored.
+    """
+    if str(path) == "-":
+        return _filter_target_lines(sys.stdin.read())
+    return read_input_file(path)
 
 
 def collect_targets(positional: str | None, input_file: Path | None) -> list[str]:
@@ -50,6 +67,25 @@ def collect_targets(positional: str | None, input_file: Path | None) -> list[str
         targets.extend(read_input_file(input_file))
     if not targets:
         raise UsageError("provide a target argument or --input-file")
+    return targets
+
+
+def collect_target_list(
+    positionals: Sequence[str] | None, input_file: Path | None
+) -> list[str]:
+    """Combine variadic positional targets with ``--input-file``/stdin targets.
+
+    Order is first-appearance: positionals (in the order given), then input-file or
+    stdin (``-``) lines.
+
+    Raises:
+        UsageError: When no targets were provided by either source.
+    """
+    targets: list[str] = list(positionals or [])
+    if input_file is not None:
+        targets.extend(read_input_source(input_file))
+    if not targets:
+        raise UsageError("provide at least one target argument or --input-file")
     return targets
 
 

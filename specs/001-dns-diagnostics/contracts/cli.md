@@ -51,6 +51,8 @@ Human output is colorized/tabular on a TTY and auto-plain when piped.
 | 9 | TLS handshake failed *(tls)* |
 | 10 | certificate invalid *(tls)* |
 | 11 | certificate expiring soon *(tls)* |
+| 12 | port already in use *(net listener bind)* |
+| 13 | bind permission denied *(net listener bind)* |
 
 Batch rule: exit 0 only if every target succeeds; otherwise the most severe outcome's code (or 7
 when outcomes are mixed).

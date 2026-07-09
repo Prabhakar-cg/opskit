@@ -6,12 +6,12 @@ See specs/002-tls-verification/data-model.md.
 
 from __future__ import annotations
 
-import ipaddress
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 from opskit.core.errors import UsageError
+from opskit.net.models import is_ip_literal, normalize_host, split_host_port
 
 DEFAULT_PORT = 443
 _MAX_PORT = 65535
@@ -83,8 +83,8 @@ def parse_target(
     if not text:
         raise UsageError("a target host is required")
 
-    host, shorthand_port = _split_host_port(text, raw)
-    host = host.strip().rstrip(".")  # normalize trailing-dot hostnames
+    host, shorthand_port = split_host_port(text, raw)
+    host = normalize_host(host)  # normalize trailing-dot hostnames
     if not host:
         raise UsageError(f"invalid target (empty host): {raw}")
 
@@ -98,7 +98,7 @@ def parse_target(
         effective_port = DEFAULT_PORT
     elif not 1 <= effective_port <= _MAX_PORT:
         raise UsageError(f"port must be between 1 and {_MAX_PORT}: {effective_port}")
-    is_ip = _is_ip_literal(host)
+    is_ip = is_ip_literal(host)
 
     if server_name:
         effective_sni: str | None = server_name
@@ -109,48 +109,6 @@ def parse_target(
     return TlsTarget(
         host=host, port=effective_port, server_name=effective_sni, is_ip=is_ip
     )
-
-
-def _split_host_port(text: str, raw: str) -> tuple[str, int | None]:
-    """Split a target into (host, shorthand-port); handles `[v6]:port` and bare IPv6."""
-    if text.startswith("["):  # [v6]:port or [v6]
-        closing = text.find("]")
-        if closing < 0:
-            raise UsageError(f"invalid target (unclosed '['): {raw}")
-        rest = text[closing + 1 :]
-        if rest.startswith(":"):
-            return text[1:closing], _parse_port(rest[1:], raw)
-        if rest:
-            raise UsageError(f"invalid target: {raw}")
-        return text[1:closing], None
-    if text.count(":") == 1:  # host:port (a single colon cannot be bare IPv6)
-        host, _, port_text = text.partition(":")
-        return host, _parse_port(port_text, raw)
-    if text.count(":") > 1 and not _is_ip_literal(text):
-        # Multiple colons are only valid as a bare IPv6 literal; anything else is ambiguous.
-        raise UsageError(
-            f"invalid target: {raw}",
-            hint="use [ipv6]:port to add a port to an IPv6 address",
-        )
-    return text, None  # bare hostname, IPv4, or bare IPv6 literal
-
-
-def _is_ip_literal(host: str) -> bool:
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return True
-
-
-def _parse_port(text: str, raw: str) -> int:
-    try:
-        value = int(text)
-    except ValueError as exc:
-        raise UsageError(f"invalid port in target: {raw}") from exc
-    if not 1 <= value <= _MAX_PORT:
-        raise UsageError(f"port must be between 1 and {_MAX_PORT}: {raw}")
-    return value
 
 
 @dataclass(frozen=True)

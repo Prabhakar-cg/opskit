@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from opskit.core.errors import UsageError
 from opskit.net.errors import ConnectRefused, ConnectTimeout, ResolutionError
 
 
@@ -53,7 +54,24 @@ def _family_name(af: int) -> str:
     return "ipv6" if af == socket.AF_INET6 else "ipv4"
 
 
-def resolve(host: str, port: int, *, timeout: float = 5.0) -> list[AddressCandidate]:
+_FAMILY_AF = {None: socket.AF_UNSPEC, "ipv4": socket.AF_INET, "ipv6": socket.AF_INET6}
+
+
+def _family_af(family: str | None) -> int:
+    try:
+        return _FAMILY_AF[family]
+    except KeyError:
+        raise UsageError(f"unknown address family: {family}") from None
+
+
+def resolve(
+    host: str,
+    port: int,
+    *,
+    timeout: float = 5.0,
+    family: str | None = None,
+    socktype: int = socket.SOCK_STREAM,
+) -> list[AddressCandidate]:
     """Resolve ``host`` to ordered address candidates (platform dual-stack order).
 
     Args:
@@ -61,15 +79,19 @@ def resolve(host: str, port: int, *, timeout: float = 5.0) -> list[AddressCandid
         port: Target port (carried into the socket addresses).
         timeout: Wall-clock budget for the lookup. ``socket.getaddrinfo`` has no per-call
             timeout, so it runs off-thread and is abandoned after ``timeout`` seconds.
+        family: Restrict results to one family (``"ipv4"``/``"ipv6"``); ``None`` = both.
+        socktype: ``getaddrinfo`` socket-type hint (``SOCK_DGRAM`` for UDP callers).
 
     Returns:
         Candidates in the order the platform recommends trying them.
 
     Raises:
-        ResolutionError: If the name does not resolve or resolution exceeds ``timeout``.
+        ResolutionError: If the name does not resolve, has no address in the requested
+            family, or resolution exceeds ``timeout``.
     """
+    af = _family_af(family)
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(socket.getaddrinfo, host, port, type=socket.SOCK_STREAM)
+    future = executor.submit(socket.getaddrinfo, host, port, af, socktype)
     try:
         infos = future.result(timeout=timeout)
     except concurrent.futures.TimeoutError as exc:
@@ -79,6 +101,12 @@ def resolve(host: str, port: int, *, timeout: float = 5.0) -> list[AddressCandid
             + host,
         ) from exc
     except OSError as exc:
+        if family is not None:
+            raise ResolutionError(
+                f"cannot resolve {host} to an {family} address: {exc}",
+                hint=f"the name may have no {family} address; drop the family "
+                "restriction or diagnose with: opskit dns lookup " + host,
+            ) from exc
         raise ResolutionError(
             f"cannot resolve {host}: {exc}",
             hint="check the name for typos, or diagnose with: opskit dns lookup "
@@ -89,16 +117,18 @@ def resolve(host: str, port: int, *, timeout: float = 5.0) -> list[AddressCandid
         # resolver abandons it per resolv.conf), just release the executor.
         executor.shutdown(wait=False)
     candidates: list[AddressCandidate] = []
-    for af, _, _, _, sockaddr in infos:
+    for cand_af, _, _, _, sockaddr in infos:
         candidates.append(
             AddressCandidate(
                 address=str(sockaddr[0]),
-                family=_family_name(af),
+                family=_family_name(cand_af),
                 sockaddr=tuple(sockaddr),
-                af=af,
+                af=cand_af,
             )
         )
     if not candidates:
+        if family is not None:
+            raise ResolutionError(f"no {family} address for {host}")
         raise ResolutionError(f"cannot resolve {host}: no addresses returned")
     return candidates
 
@@ -109,21 +139,29 @@ def connect(
     *,
     timeout: float = 5.0,
     retries: int = 2,
+    family: str | None = None,
 ) -> tuple[socket.socket, TcpConnection]:
     """Open a TCP connection to ``host:port``; the caller owns (and must close) the socket.
 
     Candidates are tried in :func:`resolve` order; timeouts are retried up to ``retries``
     times across the candidate list, while a refusal on every candidate fails immediately.
 
+    Args:
+        host: Hostname or IP literal.
+        port: Target port.
+        timeout: Per-attempt timeout, seconds.
+        retries: Retries on timeout (a refusal is definitive and not retried).
+        family: Restrict candidates to one family (``"ipv4"``/``"ipv6"``); ``None`` = both.
+
     Returns:
         The connected socket (timeout still set) and a :class:`TcpConnection` report.
 
     Raises:
-        ResolutionError: If the name does not resolve.
+        ResolutionError: If the name does not resolve (or not in the requested family).
         ConnectRefused: If every candidate refused / was unreachable.
         ConnectTimeout: If no candidate answered before the timeout (after retries).
     """
-    candidates = resolve(host, port, timeout=timeout)
+    candidates = resolve(host, port, timeout=timeout, family=family)
     start = time.perf_counter()
     saw_timeout = False
     refused_exc: BaseException | None = None

@@ -11,6 +11,7 @@ import typer
 
 from opskit import __version__
 from opskit.dns.cli import app as dns_app
+from opskit.net.cli import app as net_app
 from opskit.tls.cli import app as tls_app
 
 app = typer.Typer(
@@ -20,6 +21,7 @@ app = typer.Typer(
     add_completion=True,
 )
 app.add_typer(dns_app, name="dns")
+app.add_typer(net_app, name="net")
 app.add_typer(tls_app, name="tls")
 
 

@@ -8,6 +8,7 @@ import time
 
 import pytest
 
+from opskit.core.errors import UsageError
 from opskit.net import (
     ConnectRefused,
     ConnectTimeout,
@@ -113,7 +114,7 @@ def test_refusal_wins_over_timeout_for_dual_stack(monkeypatch):
     monkeypatch.setattr(
         tcp,
         "resolve",
-        lambda host, port, timeout=5.0: [
+        lambda host, port, timeout=5.0, family=None: [
             tcp.AddressCandidate(
                 "192.0.2.1", "ipv4", ("192.0.2.1", port), socket.AF_INET
             ),
@@ -131,3 +132,56 @@ def test_refusal_wins_over_timeout_for_dual_stack(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _connect)
     with pytest.raises(ConnectRefused):
         connect("dual.example", 443, timeout=0.05, retries=1)
+
+
+def test_resolve_family_restriction_ipv4():
+    candidates = resolve("localhost", 443, family="ipv4")
+    assert candidates
+    assert all(c.family == "ipv4" for c in candidates)
+
+
+def test_resolve_family_restriction_ipv6():
+    if not socket.has_ipv6:
+        pytest.skip("no IPv6 stack")
+    try:
+        candidates = resolve("localhost", 443, family="ipv6")
+    except ResolutionError:
+        pytest.skip("localhost has no IPv6 address on this host")
+    assert all(c.family == "ipv6" for c in candidates)
+
+
+def test_resolve_empty_family_raises_resolution_error(monkeypatch):
+    # getaddrinfo raising for the restricted family -> ResolutionError naming it (R1).
+    def _no_af(*args, **kwargs):
+        raise socket.gaierror("Address family for hostname not supported")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _no_af)
+    with pytest.raises(ResolutionError) as excinfo:
+        resolve("v4only.example", 443, family="ipv6")
+    assert "ipv6" in excinfo.value.message
+    assert "family" in (excinfo.value.hint or "")
+
+
+def test_resolve_empty_candidate_list_names_family(monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [])
+    with pytest.raises(ResolutionError) as excinfo:
+        resolve("empty.example", 443, family="ipv6")
+    assert "no ipv6 address" in excinfo.value.message
+
+
+def test_resolve_unknown_family_is_usage_error():
+    with pytest.raises(UsageError):
+        resolve("localhost", 443, family="ipv5")
+
+
+def test_connect_passes_family_through(monkeypatch):
+    seen = {}
+
+    def _resolve(host, port, *, timeout=5.0, family=None):
+        seen["family"] = family
+        raise ResolutionError("stop here")
+
+    monkeypatch.setattr(tcp, "resolve", _resolve)
+    with pytest.raises(ResolutionError):
+        connect("example.com", 443, family="ipv4")
+    assert seen["family"] == "ipv4"

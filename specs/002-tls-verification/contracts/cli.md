@@ -48,6 +48,8 @@ are shown **even when validation fails** (FR-006). Batch mode prefixes each targ
 | **9** | **handshake failed** (incl. non-TLS service on port; STARTTLS hint) | handshake |
 | **10** | **certificate invalid** (expired, not-yet-valid, name mismatch, self-signed, untrusted/incomplete chain) | validate |
 | **11** | **certificate expiring soon** (valid, within `--warn-days`) | validate |
+| 12 | port already in use *(net listener bind — shared enum)* | — |
+| 13 | bind permission denied *(net listener bind — shared enum)* | — |
 
 Batch rule (constitution Art. IX): every target processed; exit 0 only if all pass; the uniform
 class if all failures share one class; else 7. Failed targets always appear in `--json`/`--jsonl`

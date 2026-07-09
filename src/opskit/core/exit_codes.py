@@ -28,6 +28,8 @@ class ExitCode(IntEnum):
     HANDSHAKE_FAILED = 9
     CERT_INVALID = 10
     CERT_EXPIRING = 11
+    PORT_IN_USE = 12
+    BIND_PERMISSION = 13
 
 
 def exit_code_for(error: OpskitError) -> ExitCode:
