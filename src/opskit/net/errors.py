@@ -35,3 +35,31 @@ class ConnectTimeout(NetError):
 
     code = "connect_timeout"
     exit_code = ExitCode.TIMEOUT
+
+
+class UdpClosed(NetError):
+    """The host signaled ICMP port unreachable — the UDP port is closed."""
+
+    code = "udp_closed"
+    exit_code = ExitCode.CONNECT_FAILED  # same outcome class as a TCP refusal
+
+
+class UdpInconclusive(NetError):
+    """No reply and no unreachable signal — the UDP port is open or filtered."""
+
+    code = "udp_inconclusive"
+    exit_code = ExitCode.TIMEOUT  # no-response class, like a TCP filtered timeout
+
+
+class PortInUse(NetError):
+    """The listener could not bind: the port is already in use."""
+
+    code = "port_in_use"
+    exit_code = ExitCode.PORT_IN_USE
+
+
+class BindPermissionDenied(NetError):
+    """The listener could not bind: the OS denied permission (privileged port)."""
+
+    code = "bind_permission_denied"
+    exit_code = ExitCode.BIND_PERMISSION

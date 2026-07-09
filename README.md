@@ -58,7 +58,7 @@ Each command group is self-contained and documented in its own README next to th
 |---|---|---|
 | `opskit dns` | Read-only DNS diagnostics — forward/reverse lookups, multi-resolver diff, iterative trace, watch | [dns/README.md](src/opskit/dns/README.md) |
 | `opskit tls` | TLS verification — layered endpoint checks, certificate/chain inspection, expiry warnings, private-PKI trust | [tls/README.md](src/opskit/tls/README.md) |
-| `opskit net` | Network reachability (TCP connect, port checks) — the connect primitive already ships as the `opskit.net` library | _planned_ |
+| `opskit net` | Network reachability — TCP/UDP port checks, ping-style probes, temporary metadata-only listener | [net/README.md](src/opskit/net/README.md) |
 | `opskit ad` | Directory (LDAP/AD) queries | _planned_ |
 
 Quick taste of the DNS group:

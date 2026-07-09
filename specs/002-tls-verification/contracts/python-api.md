@@ -85,7 +85,7 @@ except CertificateInvalid as exc:
 
 ## Compatibility rules
 
-- New exit codes (8–11) and both packages are **additive** → MINOR release.
+- New exit codes (8–11; the net feature later added 12–13 to the same shared enum) and both packages are **additive** → MINOR release.
 - `TlsCheckResult.to_dict()` matches the CLI envelope's `result` object exactly.
 - `opskit.net` is public from day one but documented as "primitive layer"; the future net
   category adds commands without breaking it.

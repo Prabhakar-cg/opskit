@@ -354,3 +354,109 @@ def closed_port() -> int:
     port = int(probe.getsockname()[1])
     probe.close()
     return port
+
+
+# --- net fixtures (research R6): real loopback sockets, no external network ---
+
+
+class TcpAcceptListener:
+    """A threaded loopback TCP server that accepts and immediately closes."""
+
+    def __init__(self) -> None:
+        """Bind an ephemeral loopback port and start the accept loop."""
+        self._server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server.bind(("127.0.0.1", 0))
+        self._server.listen(16)
+        self.port = int(self._server.getsockname()[1])
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        self._server.settimeout(0.2)
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._server.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            with contextlib.suppress(OSError):
+                conn.close()  # accept-then-immediately-close: still "open"
+
+    def close(self) -> None:
+        """Stop accepting and release the port."""
+        self._stop.set()
+        with contextlib.suppress(OSError):
+            self._server.close()
+        self._thread.join(timeout=2)
+
+
+@pytest.fixture
+def tcp_listener():
+    """A running loopback TCP accept-listener (its port is open)."""
+    server = TcpAcceptListener()
+    yield server
+    server.close()
+
+
+class UdpEchoServer:
+    """A threaded loopback UDP server echoing every datagram back to its sender."""
+
+    def __init__(self) -> None:
+        """Bind an ephemeral loopback port and start the echo loop."""
+        self._server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._server.bind(("127.0.0.1", 0))
+        self.port = int(self._server.getsockname()[1])
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        self._server.settimeout(0.2)
+        while not self._stop.is_set():
+            try:
+                data, peer = self._server.recvfrom(65535)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            with contextlib.suppress(OSError):
+                self._server.sendto(data or b"pong", peer)
+
+    def close(self) -> None:
+        """Stop echoing and release the port."""
+        self._stop.set()
+        with contextlib.suppress(OSError):
+            self._server.close()
+        self._thread.join(timeout=2)
+
+
+@pytest.fixture
+def udp_echo():
+    """A running loopback UDP echo server (its port replies -> "open")."""
+    server = UdpEchoServer()
+    yield server
+    server.close()
+
+
+@pytest.fixture
+def udp_closed_port() -> int:
+    """A loopback UDP port that is guaranteed closed (bound then released)."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe.bind(("127.0.0.1", 0))
+    port = int(probe.getsockname()[1])
+    probe.close()
+    return port
+
+
+@pytest.fixture
+def free_port() -> int:
+    """An ephemeral loopback port that is free to bind (allocated then released)."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    probe.bind(("127.0.0.1", 0))
+    port = int(probe.getsockname()[1])
+    probe.close()
+    return port
