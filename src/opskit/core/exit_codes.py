@@ -30,6 +30,10 @@ class ExitCode(IntEnum):
     CERT_EXPIRING = 11
     PORT_IN_USE = 12
     BIND_PERMISSION = 13
+    AUTH_FAILED = 14
+    PERMISSION_DENIED = 15
+    NOT_FOUND = 16
+    NOT_MEMBER = 17
 
 
 def exit_code_for(error: OpskitError) -> ExitCode:

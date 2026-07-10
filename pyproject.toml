@@ -49,14 +49,15 @@ Changelog = "https://github.com/Prabhakar-cg/opskit/blob/main/CHANGELOG.md"
 opskit = "opskit.cli:main"
 
 [project.optional-dependencies]
-# Future category extras keep the base install slim:
-# tls = ["cryptography>=42"]
-# ad  = ["ldap3>=2.9"]
+# Category extras keep the base install slim. ldap3 is quarantined behind the single
+# adapter module src/opskit/ad/directory.py (see specs/004-ad-diagnostics/research.md R1).
+ad = ["ldap3>=2.9,<3"]
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
     "hypothesis>=6",
     "dnslib>=0.9",
+    "ldap3>=2.9,<3",  # ad-category tests (mock directory strategy)
     "ruff>=0.6",
     "mypy>=1.11",
     "pyright>=1.1.380",
@@ -110,10 +111,17 @@ convention = "google"
 max-args = 9  # DNS query controls (server/transport/timeout/retries/port/…) legitimately need them
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "ANN", "S101", "PLR2004"]
+# Tests: fixture secrets (S105/S106 — the redaction scan is the real gate), local
+# imports and combined-with ergonomics are idiomatic in test code.
+"tests/**" = ["D", "ANN", "S101", "PLR2004", "S105", "S106", "PLC0415", "SIM117"]
 "noxfile.py" = ["D", "ANN"]
 # Typer needs Optional[...] (not X | None) on 3.9; CLI commands legitimately have many options:
 "src/opskit/**/cli.py" = ["UP007", "UP045", "PLR0913"]
+# ad convenience functions mirror every DirectoryConfig field by contract (python-api.md):
+"src/opskit/ad/api.py" = ["PLR0913"]
+# The single untyped-ldap3 quarantine module (research R9): lazy imports by design,
+# Any at the wrapped boundary only.
+"src/opskit/ad/directory.py" = ["ANN401", "PLC0415"]
 
 # ---------------------------------------------------------------------------
 # Type checking — mypy --strict + pyright
@@ -126,6 +134,12 @@ strict = true
 files = ["src"]  # product code is strictly typed; tests are validated by pytest
 warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+# ldap3 ships no py.typed/stubs; it is quarantined in src/opskit/ad/directory.py behind
+# typed wrappers (research R9). This override is module-scoped — strictness holds everywhere else.
+[[tool.mypy.overrides]]
+module = "ldap3.*"
+ignore_missing_imports = true
 
 [tool.pyright]
 include = ["src"]  # product code is pyright-strict; tests are covered by mypy

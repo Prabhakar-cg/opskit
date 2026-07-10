@@ -98,6 +98,7 @@ expires with zero events — "nothing reached me" is the branchable diagnostic a
 | 8 | connection refused (TCP) / port closed (UDP unreachable signal) | check, probe |
 | **12** | **port already in use** (listener bind) | listen |
 | **13** | **bind permission denied** (listener bind; hint: unprivileged port) | listen |
+| 14–17 | ad category: auth failed / permission denied / not found / not a member *(shared enum)* | — |
 
 Batch rule (Art. IX): every target processed; exit `0` only if all pass; the uniform class
 if all failures share one class; else `7`. Failed targets always appear in

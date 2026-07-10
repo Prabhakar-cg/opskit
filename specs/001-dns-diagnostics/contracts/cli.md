@@ -53,6 +53,10 @@ Human output is colorized/tabular on a TTY and auto-plain when piped.
 | 11 | certificate expiring soon *(tls)* |
 | 12 | port already in use *(net listener bind)* |
 | 13 | bind permission denied *(net listener bind)* |
+| 14 | authentication failed *(ad bind rejected)* |
+| 15 | permission denied *(ad: bound but not authorized)* |
+| 16 | not found *(ad principal/group/object)* |
+| 17 | not a member *(ad membership-test verdict)* |
 
 Batch rule: exit 0 only if every target succeeds; otherwise the most severe outcome's code (or 7
 when outcomes are mixed).

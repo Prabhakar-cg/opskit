@@ -50,6 +50,7 @@ are shown **even when validation fails** (FR-006). Batch mode prefixes each targ
 | **11** | **certificate expiring soon** (valid, within `--warn-days`) | validate |
 | 12 | port already in use *(net listener bind — shared enum)* | — |
 | 13 | bind permission denied *(net listener bind — shared enum)* | — |
+| 14–17 | ad category: auth failed / permission denied / not found / not a member *(shared enum)* | — |
 
 Batch rule (constitution Art. IX): every target processed; exit 0 only if all pass; the uniform
 class if all failures share one class; else 7. Failed targets always appear in `--json`/`--jsonl`

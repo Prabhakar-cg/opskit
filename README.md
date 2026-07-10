@@ -59,7 +59,7 @@ Each command group is self-contained and documented in its own README next to th
 | `opskit dns` | Read-only DNS diagnostics — forward/reverse lookups, multi-resolver diff, iterative trace, watch | [dns/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/dns/README.md) |
 | `opskit tls` | TLS verification — layered endpoint checks, certificate/chain inspection, expiry warnings, private-PKI trust | [tls/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/tls/README.md) |
 | `opskit net` | Network reachability — TCP/UDP port checks, ping-style probes, temporary metadata-only listener | [net/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/net/README.md) |
-| `opskit ad` | Directory (LDAP/AD) queries | _planned_ |
+| `opskit ad` | Active Directory / LDAP diagnostics — account sign-in status, group membership (nested), directory/bind checks, object lookup (`pip install "opskit[ad]"`) | [ad/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/ad/README.md) |
 
 Quick taste of the DNS group:
 
