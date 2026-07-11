@@ -96,7 +96,9 @@ class TestDiscoverDcs:
         lookup = _lookup_returning({})
         with pytest.raises(DiscoveryError) as excinfo:
             discover_dcs("nosuch.example.com", lookup=lookup)
-        assert "nosuch.example.com" in excinfo.value.message
+        assert excinfo.value.message == (
+            "no directory servers found for domain: nosuch.example.com"
+        )
         assert excinfo.value.hint is not None
         assert "--server" in excinfo.value.hint
 
