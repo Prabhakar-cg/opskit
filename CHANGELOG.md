@@ -5,6 +5,13 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.4](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.3...opskit-v0.1.4) (2026-07-11)
+
+
+### Features
+
+* **ad:** Active Directory / LDAP diagnostics command group ([#35](https://github.com/Prabhakar-cg/opskit/issues/35)) ([1fa6c25](https://github.com/Prabhakar-cg/opskit/commit/1fa6c255dca2159c8ac64993d6f0b38ffab2227b))
+
 ## [0.1.3](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.2...opskit-v0.1.3) (2026-07-09)
 
 
