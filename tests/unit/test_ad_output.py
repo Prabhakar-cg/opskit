@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 from datetime import datetime, timezone
+from typing import Any
 
 from rich.console import Console
 
@@ -33,8 +34,8 @@ def _console() -> tuple[Console, io.StringIO]:
     return Console(file=buffer, no_color=True, width=200), buffer
 
 
-def _status(**overrides) -> AccountStatusReport:
-    values: dict = {
+def _status(**overrides: Any) -> AccountStatusReport:
+    values: dict[str, Any] = {
         "principal": "jdoe",
         "dn": "CN=J Doe,OU=Staff,DC=corp,DC=example,DC=com",
         "sam_account_name": "jdoe",
@@ -186,8 +187,8 @@ class TestRenderVerdict:
 
 
 class TestRenderCheck:
-    def _report(self, **overrides) -> ConnectivityReport:
-        values: dict = {
+    def _report(self, **overrides: Any) -> ConnectivityReport:
+        values: dict[str, Any] = {
             "server_used": "dc01.corp.example.com",
             "port": 636,
             "security": "ldaps",

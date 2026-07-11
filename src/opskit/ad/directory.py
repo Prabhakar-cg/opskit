@@ -430,34 +430,41 @@ def connect_session(
     if stages is not None:
         stages.append(Stage(open_stage, True, (time.perf_counter() - start) * 1000.0))
 
-    if config.security == "starttls":
+    # Past this point the socket is open: close it before propagating any
+    # failure so batch runs don't accumulate leaked file descriptors.
+    try:
+        if config.security == "starttls":
+            start = time.perf_counter()
+            try:
+                upgraded = bool(conn.start_tls())
+            except Exception as exc:
+                raise classify_connect_error(exc, host=host, port=port) from exc
+            if not upgraded:
+                raise HandshakeError(
+                    f"StartTLS upgrade failed with {host}:{port}",
+                    hint="the server may not support StartTLS — try LDAPS "
+                    "(default, port 636) or check the server configuration",
+                )
+            if stages is not None:
+                stages.append(
+                    Stage("secured", True, (time.perf_counter() - start) * 1000.0)
+                )
+
         start = time.perf_counter()
         try:
-            upgraded = bool(conn.start_tls())
+            _bind(conn, host=host, port=port)
+        except OpskitError:
+            raise
         except Exception as exc:
             raise classify_connect_error(exc, host=host, port=port) from exc
-        if not upgraded:
-            raise HandshakeError(
-                f"StartTLS upgrade failed with {host}:{port}",
-                hint="the server may not support StartTLS — try LDAPS (default, "
-                "port 636) or check the server configuration",
-            )
         if stages is not None:
             stages.append(
-                Stage("secured", True, (time.perf_counter() - start) * 1000.0)
+                Stage("authenticated", True, (time.perf_counter() - start) * 1000.0)
             )
-
-    start = time.perf_counter()
-    try:
-        _bind(conn, host=host, port=port)
-    except OpskitError:
+    except BaseException:
+        with contextlib.suppress(Exception):
+            conn.unbind()
         raise
-    except Exception as exc:
-        raise classify_connect_error(exc, host=host, port=port) from exc
-    if stages is not None:
-        stages.append(
-            Stage("authenticated", True, (time.perf_counter() - start) * 1000.0)
-        )
 
     return DirectorySession(
         conn,

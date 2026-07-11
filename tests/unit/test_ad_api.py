@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import importlib
+import sys
+from typing import Any
+
 import pytest
 
 from opskit.ad import api
+from opskit.ad.directory import DirectorySession
 from opskit.ad.errors import (
     AmbiguousPrincipal,
     AuthenticationFailed,
     DiscoveryError,
     PrincipalNotFound,
 )
+from opskit.ad.models import DirectoryConfig
 from opskit.core.errors import UsageError
 
 AD_BASE = "dc=corp,dc=example,dc=com"
@@ -105,7 +111,9 @@ class TestUserStatus:
     def test_session_is_reused(self, ad_config, ad_session_factory):
         calls: list[str] = []
 
-        def counting_factory(config, **kwargs):
+        def counting_factory(
+            config: DirectoryConfig, **kwargs: Any
+        ) -> DirectorySession:
             calls.append(kwargs["host"])
             return ad_session_factory(config, **kwargs)
 
@@ -245,7 +253,7 @@ class TestCheck:
     def test_discovery_failure_propagates(
         self, ad_config_factory, ad_session_factory, monkeypatch
     ):
-        def no_dcs(domain, timeout):
+        def no_dcs(domain: str, timeout: float) -> list[str]:
             raise DiscoveryError(f"no directory servers found for domain: {domain}")
 
         monkeypatch.setattr("opskit.ad.api.discovery.discover_dcs", no_dcs)
@@ -308,8 +316,32 @@ class TestLibraryContract:
         report = ad_client.user_status("jdoe")
         assert "S3cret-Passw0rd!" not in str(report.to_dict())
 
-    def test_import_without_extra_is_safe(self):
-        import opskit.ad  # noqa: F401  (already imported; must not require ldap3)
+    def test_import_without_extra_is_safe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fresh opskit.ad import succeeds without ldap3; the first LDAP
+        operation raises DependencyMissing (with the install hint) instead."""
+        import opskit
+
+        monkeypatch.setitem(sys.modules, "ldap3", None)  # blocks `import ldap3`
+        # The fresh import below rebinds the `ad` attribute on the parent package;
+        # register it with monkeypatch so teardown restores the original binding
+        # (sys.modules alone is not enough — attribute lookups resolve through it).
+        monkeypatch.setattr(opskit, "ad", opskit.ad)
+        cached = [
+            name
+            for name in sys.modules
+            if name == "opskit.ad" or name.startswith("opskit.ad.")
+        ]
+        for name in cached:
+            monkeypatch.delitem(sys.modules, name)  # force real re-execution
+
+        ad = importlib.import_module("opskit.ad")  # must not require ldap3
+
+        fresh_errors = importlib.import_module("opskit.ad.errors")
+        with pytest.raises(fresh_errors.DependencyMissing) as excinfo:
+            ad.check(server="127.0.0.1:636", timeout=1.0)
+        assert "opskit[ad]" in str(excinfo.value.hint)
 
     def test_usage_error_before_any_io(self):
         with pytest.raises(UsageError):

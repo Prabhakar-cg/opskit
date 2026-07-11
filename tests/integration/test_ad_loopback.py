@@ -42,12 +42,13 @@ class TestSecureStage:
         assert "opskit tls check" in str(excinfo.value.hint)
 
     def test_cli_exit_ten_with_tls_hint(self, tls_server):
+        server = tls_server("self_signed")
         result = runner.invoke(
             app,
             [
                 "ad",
                 "check",
-                f"{tls_server('self_signed').host}:{tls_server('self_signed').port}",
+                f"{server.host}:{server.port}",
                 "--timeout",
                 "3",
                 "--json",

@@ -72,7 +72,7 @@ name under `--jsonl`. Password prompt never triggers on piped stdin (usage error
 
 ```bash
 uv run pytest tests/ -k ad          # includes the suite-wide password-scan fixture
-opskit ad user jdoe --json | grep -c "$OPSKIT_AD_PASSWORD"   # → 0
+opskit ad user jdoe --json | python -c 'import os, sys; sys.exit(os.environ["OPSKIT_AD_PASSWORD"] in sys.stdin.read())'   # → exit 0 (secret absent)
 uv run ruff check src/opskit/ad && uv run mypy src && uv run pyright
 ```
 
