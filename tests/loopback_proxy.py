@@ -113,6 +113,10 @@ class ScriptedProxy:
         conn.settimeout(10.0)
         try:
             head = self._read_head(conn)
+            if not head:
+                # The peer connected and closed without sending anything (e.g. a
+                # plain TCP reachability check against this port) — not a request.
+                return
             with self._lock:
                 self.requests.append(head)
                 index = len(self.requests) - 1

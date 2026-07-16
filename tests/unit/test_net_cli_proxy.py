@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 from typer.testing import CliRunner
@@ -131,10 +132,13 @@ class TestProxyPrecedence:
         result = runner.invoke(app, ["net", "check", "db.example.com:5432", "--json"])
         assert result.exit_code == 0
         assert capture_check[0] == parse_proxy(winner)
+        # Windows environment variables are case-insensitive: a lowercase preset is
+        # found (and therefore reported) under the uppercase name checked first.
+        expected_var = winner_var.upper() if sys.platform == "win32" else winner_var
         assert _route(result.stdout) == {
             "via": "http-proxy",
             "proxy": winner,
-            "source": f"env:{winner_var}",
+            "source": f"env:{expected_var}",
         }
 
     def test_no_proxy_anywhere_is_direct_default(self, capture_check):

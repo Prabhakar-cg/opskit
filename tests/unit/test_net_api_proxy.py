@@ -92,18 +92,26 @@ class TestCheckViaProxy:
 
     def test_family_restriction_applies_to_proxy_hop(self, scripted_proxy):
         proxy = scripted_proxy("tunnel")
-        # The stand-in proxy is IPv4-only loopback; an ipv6-restricted check must
-        # fail at the proxy hop with a resolution-class error, not reach the target.
+        # The stand-in proxy is IPv4-only loopback. Restricting the check to ipv6
+        # must constrain the PROXY hop: either resolution fails (no ipv6 route to
+        # the proxy) or the platform offers a v4-mapped ipv6 path — in which case
+        # the connection itself must have been made in the ipv6 family.
         from opskit.net.errors import ProxyResolutionError
 
-        with pytest.raises(ProxyResolutionError):
-            api.check(
+        try:
+            result = api.check(
                 "internal.example:443",
                 proxy=proxy.address,
                 family="ipv6",
-                timeout=1.0,
+                timeout=2.0,
                 retries=0,
             )
+        except ProxyResolutionError:
+            assert proxy.requests == []  # never reached the proxy, let alone the target
+        else:
+            assert result.family == "ipv6"  # v4-mapped: the restriction still applied
+            assert len(proxy.requests) == 1
+            assert proxy.connect_line().startswith("CONNECT internal.example:443")
 
 
 class TestProbeViaProxy:
