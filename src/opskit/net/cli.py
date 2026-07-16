@@ -14,9 +14,11 @@ results; ``listen`` streams inbound events.
 """
 
 import json
+import os
 import time
+from dataclasses import replace
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, NamedTuple, Optional
 
 import typer
 from rich.markup import escape
@@ -41,9 +43,13 @@ from opskit.net.models import (
     NetTarget,
     ProbeAttempt,
     Protocol,
+    ProxySpec,
+    Route,
     StopReason,
     Verdict,
+    parse_proxy,
     parse_target,
+    proxy_exempt,
 )
 from opskit.net.output import (
     render_check,
@@ -71,6 +77,8 @@ _CHECK_EPILOG = """\
   opskit net check -i endpoints.txt --jsonl
   cat endpoints.txt | opskit net check -i - --jsonl
   opskit net check api.example.com:443 --watch 30s
+  opskit net check internal.example:443 --proxy proxy.corp.example:3128
+  opskit net check api.example.com:443 --direct
 """
 
 _PROBE_EPILOG = """\
@@ -78,6 +86,7 @@ _PROBE_EPILOG = """\
 
   opskit net probe api.example.com:443 -c 20 --interval 500ms
   opskit net probe dns.example.com:53 --udp -c 10
+  opskit net probe internal.example:443 --proxy proxy.corp.example:3128 -c 10
 """
 
 _LISTEN_EPILOG = """\
@@ -96,7 +105,89 @@ _VERDICT_EXIT = {
     Verdict.TIMEOUT: ExitCode.TIMEOUT,
     Verdict.INCONCLUSIVE: ExitCode.TIMEOUT,
     Verdict.RESOLVE_FAILED: ExitCode.NXDOMAIN,
+    Verdict.AUTH_REQUIRED: ExitCode.AUTH_FAILED,
+    Verdict.TUNNEL_DENIED: ExitCode.TUNNEL_DENIED,
+    Verdict.GATEWAY_FAILED: ExitCode.PROXY_GATEWAY,
+    Verdict.NOT_A_PROXY: ExitCode.NOT_A_PROXY,
 }
+
+
+class ProxyConfig(NamedTuple):
+    """The run-level proxy decision: nominated spec, provenance, exemptions."""
+
+    spec: Optional[ProxySpec]
+    source: str  # "flag" | "env:<VAR>" | "default"
+    exemptions: tuple[str, ...]
+
+
+# Fixed consultation order regardless of target port (clarification 2026-07-15);
+# for each name the uppercase then lowercase form is checked.
+_PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY")
+
+
+def _exemption_list(no_proxy: Optional[str]) -> tuple[str, ...]:
+    """The NO_PROXY exemption entries: the flag value replaces the env entirely."""
+    raw = no_proxy
+    if raw is None:
+        raw = os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or ""
+    return tuple(entry.strip() for entry in raw.split(",") if entry.strip())
+
+
+def resolve_proxy_config(
+    proxy: Optional[str], no_proxy: Optional[str], direct: bool
+) -> ProxyConfig:
+    """Resolve the effective proxy: flag > env vars > built-in direct (research R3).
+
+    This is the ONLY place opskit reads proxy environment variables — the library
+    layer takes the result as explicit arguments (Art. VII). The profile/config
+    rungs of the precedence chain slot in here when config support lands.
+
+    Raises:
+        UsageError: For ``--proxy`` + ``--direct``, or an invalid proxy spec
+            (a bad env value names its variable).
+    """
+    if direct and proxy is not None:
+        raise UsageError(
+            "--proxy and --direct are mutually exclusive",
+            hint="drop one of them (--direct forces a direct check)",
+        )
+    exemptions = _exemption_list(no_proxy)
+    if direct:
+        return ProxyConfig(None, "flag", exemptions)
+    if proxy is not None:
+        return ProxyConfig(parse_proxy(proxy), "flag", exemptions)
+    for name in _PROXY_ENV_VARS:
+        for var in (name, name.lower()):
+            value = os.environ.get(var)
+            if value and value.strip():
+                try:
+                    return ProxyConfig(parse_proxy(value), f"env:{var}", exemptions)
+                except UsageError as exc:
+                    raise UsageError(
+                        f"{var}: {exc.message}",
+                        hint=exc.hint or "fix or unset the variable, or pass --direct",
+                    ) from exc
+    return ProxyConfig(None, "default", exemptions)
+
+
+def _route_for(
+    cfg: ProxyConfig,
+    raw: str,
+    *,
+    port: Optional[int],
+    protocol: Protocol,
+    family: Optional[str],
+) -> tuple[Optional[ProxySpec], Route]:
+    """Decide one target's route: the configured proxy, or direct via exemption."""
+    if cfg.spec is None:
+        return None, Route.direct(source=cfg.source)
+    try:
+        host = parse_target(raw, port=port, protocol=protocol, family=family).host
+    except UsageError:
+        host = raw.strip()  # the target error itself surfaces from api.check
+    if proxy_exempt(host, cfg.exemptions):
+        return None, Route.direct(source="no-proxy-exemption")
+    return cfg.spec, Route.via_proxy(cfg.spec, source=cfg.source)
 
 
 def _family_flag(ipv4: bool, ipv6: bool) -> Optional[str]:
@@ -131,21 +222,24 @@ def _report_failure(
     as_json: bool,
     jsonl: bool,
     prefix: str = "",
+    route: Optional[Route] = None,
 ) -> None:
-    """Report a run-level failure: an envelope in JSON modes, stderr otherwise."""
+    """Report a run-level failure: an envelope in JSON modes, stderr otherwise.
+
+    check/probe failures carry the always-present ``route`` object; listen
+    envelopes have no route (the listener makes no outbound connection).
+    """
     if as_json or jsonl:
-        emit_envelopes(
-            [
-                build_envelope(
-                    command=command,
-                    query=query,
-                    result=None,
-                    error=error,
-                    elapsed_ms=elapsed_ms,
-                )
-            ],
-            jsonl=jsonl,
+        envelope = build_envelope(
+            command=command,
+            query=query,
+            result=None,
+            error=error,
+            elapsed_ms=elapsed_ms,
         )
+        if route is not None:
+            envelope["route"] = route.to_dict()
+        emit_envelopes([envelope], jsonl=jsonl)
         return
     message = f"error: {prefix}{error.message}"
     if error.hint:
@@ -162,46 +256,69 @@ def _check_envelope(
     protocol: Protocol,
     family: Optional[str],
     controls: "dict[str, Any]",
+    route: Optional[Route] = None,
 ) -> "dict[str, Any]":
-    """Build the JSON envelope for one target (success or failure — never dropped)."""
+    """Build the JSON envelope for one target (success or failure — never dropped).
+
+    Every envelope carries an always-present top-level ``route`` object (an explicit
+    ``direct`` when no proxy is in play), so a failed target — whose ``result`` is
+    ``null`` — still discloses how it was checked.
+    """
     if result is not None:
-        return build_envelope(
+        envelope = build_envelope(
             command="net.check",
             query=dict(result.target.to_dict(), **controls),
             result=result.to_dict(),
             error=None,
             elapsed_ms=result.time_ms,
         )
-    # Failure path: enrich the query with the parsed target when it parses, so a failed
-    # target's envelope still identifies the endpoint (not just the raw string).
-    try:
-        error_query: dict[str, Any] = parse_target(
-            raw, port=port, protocol=protocol, family=family
-        ).to_dict()
-    except UsageError:
-        error_query = {"target": raw, "protocol": protocol.value, "family": family}
-    return build_envelope(
-        command="net.check",
-        query=dict(error_query, **controls),
-        result=None,
-        error=error,
-        elapsed_ms=0.0,
-    )
+    else:
+        # Failure path: enrich the query with the parsed target when it parses, so a
+        # failed target's envelope still identifies the endpoint (not just the raw
+        # string).
+        try:
+            error_query: dict[str, Any] = parse_target(
+                raw, port=port, protocol=protocol, family=family
+            ).to_dict()
+        except UsageError:
+            error_query = {"target": raw, "protocol": protocol.value, "family": family}
+        envelope = build_envelope(
+            command="net.check",
+            query=dict(error_query, **controls),
+            result=None,
+            error=error,
+            elapsed_ms=0.0,
+        )
+    effective_route = route
+    if effective_route is None:
+        effective_route = result.route if result is not None else Route.direct()
+    envelope["route"] = effective_route.to_dict()
+    return envelope
 
 
 def _check_signature(
-    outcomes: "list[tuple[str, Optional[CheckResult], Optional[OpskitError]]]",
+    outcomes: "list[tuple[str, Optional[CheckResult], Optional[OpskitError], Route]]",
 ) -> str:
-    """Change-detection key: verdict class + connected address + family (R8).
+    """Change-detection key: verdict class + address + family + route (R8, FR-019).
 
-    Timing is deliberately excluded so latency jitter never flags a change.
+    Timing is deliberately excluded so latency jitter never flags a change; the
+    route (via + proxy) is included so a route flip flags like a verdict flip.
     """
     parts: list[object] = []
-    for target, result, error in outcomes:
+    for target, result, error, route in outcomes:
+        route_key = [route.via, route.proxy]
         if result is not None:
-            parts.append([target, result.verdict.value, result.address, result.family])
+            parts.append(
+                [
+                    target,
+                    result.verdict.value,
+                    result.address,
+                    result.family,
+                    *route_key,
+                ]
+            )
         else:
-            parts.append([target, error.code if error else "error"])
+            parts.append([target, error.code if error else "error", *route_key])
     return json.dumps(parts, sort_keys=True)
 
 
@@ -266,6 +383,33 @@ def check(
             rich_help_panel="Query controls",
         ),
     ] = 2,
+    proxy: Annotated[
+        Optional[str],
+        typer.Option(
+            "--proxy",
+            help="HTTP proxy to tunnel through (host:port or "
+            "http://user:pass@host:port); falls back to HTTPS_PROXY/HTTP_PROXY/"
+            "ALL_PROXY. Worst case per target is about 2 x timeout x (retries+1).",
+            rich_help_panel="Query controls",
+        ),
+    ] = None,
+    no_proxy: Annotated[
+        Optional[str],
+        typer.Option(
+            "--no-proxy",
+            help="Comma-separated proxy exemptions (host or domain suffix); "
+            "replaces the NO_PROXY variable when given.",
+            rich_help_panel="Query controls",
+        ),
+    ] = None,
+    direct: Annotated[
+        bool,
+        typer.Option(
+            "--direct",
+            help="Force a direct check even when the environment nominates a proxy.",
+            rich_help_panel="Query controls",
+        ),
+    ] = False,
     input_file: Annotated[
         Optional[Path],
         typer.Option(
@@ -309,12 +453,21 @@ def check(
     try:
         family = _family_flag(ipv4, ipv6)
         target_list = collect_target_list(targets, input_file)
+        proxy_cfg = resolve_proxy_config(proxy, no_proxy, direct)
+        if proxy_cfg.spec is not None and protocol is Protocol.UDP:
+            raise UsageError(
+                "cannot check a UDP port through an HTTP proxy",
+                hint="HTTP CONNECT tunnels are TCP-only; drop --udp or pass "
+                "--direct to bypass the environment's proxy",
+            )
     except UsageError as error:
         raise _usage_exit(error) from error
 
     controls: dict[str, Any] = {"timeout": timeout, "retries": retries}
+    if proxy_cfg.spec is not None:
+        controls["proxy"] = proxy_cfg.spec.display  # redacted echo (FR-014)
 
-    def run_one(raw: str) -> CheckResult:
+    def run_one(raw: str, spec: Optional[ProxySpec]) -> CheckResult:
         return api.check(
             raw,
             port=port,
@@ -322,15 +475,22 @@ def check(
             family=family,
             timeout=timeout,
             retries=retries,
+            proxy=spec,
         )
 
     def action() -> ActionResult:
-        outcomes: list[tuple[str, Optional[CheckResult], Optional[OpskitError]]] = []
+        outcomes: list[
+            tuple[str, Optional[CheckResult], Optional[OpskitError], Route]
+        ] = []
         for raw in target_list:  # every target runs — never abort on first failure
+            spec, route = _route_for(
+                proxy_cfg, raw, port=port, protocol=protocol, family=family
+            )
             try:
-                outcomes.append((raw, run_one(raw), None))
+                checked = replace(run_one(raw, spec), route=route)
+                outcomes.append((raw, checked, None, route))
             except OpskitError as exc:
-                outcomes.append((raw, None, exc))
+                outcomes.append((raw, None, exc, route))
         if as_json or jsonl:
             emit_envelopes(
                 [
@@ -342,15 +502,16 @@ def check(
                         protocol=protocol,
                         family=family,
                         controls=controls,
+                        route=route,
                     )
-                    for raw, result, error in outcomes
+                    for raw, result, error, route in outcomes
                 ],
                 jsonl=jsonl,
             )
         else:
             console = make_console(no_color=no_color)
             batch = len(target_list) > 1
-            for raw, result, error in outcomes:
+            for raw, result, error, _route in outcomes:
                 if batch:
                     console.print(f"[bold];; {escape(raw)}[/bold]")
                 if result is not None:
@@ -362,7 +523,7 @@ def check(
                     typer.echo(message, err=True)
         codes = [
             ExitCode.OK if error is None else exit_code_for(error)
-            for _, _, error in outcomes
+            for _, _, error, _ in outcomes
         ]
         return aggregate_exit(codes), _check_signature(outcomes)
 
@@ -446,6 +607,33 @@ def probe(
             rich_help_panel="Query controls",
         ),
     ] = 0,
+    proxy: Annotated[
+        Optional[str],
+        typer.Option(
+            "--proxy",
+            help="HTTP proxy to tunnel through (host:port or "
+            "http://user:pass@host:port); falls back to HTTPS_PROXY/HTTP_PROXY/"
+            "ALL_PROXY. Timings become tunnel establishment times.",
+            rich_help_panel="Query controls",
+        ),
+    ] = None,
+    no_proxy: Annotated[
+        Optional[str],
+        typer.Option(
+            "--no-proxy",
+            help="Comma-separated proxy exemptions (host or domain suffix); "
+            "replaces the NO_PROXY variable when given.",
+            rich_help_panel="Query controls",
+        ),
+    ] = None,
+    direct: Annotated[
+        bool,
+        typer.Option(
+            "--direct",
+            help="Force a direct probe even when the environment nominates a proxy.",
+            rich_help_panel="Query controls",
+        ),
+    ] = False,
     as_json: Annotated[
         bool,
         typer.Option(
@@ -475,26 +663,46 @@ def probe(
         parsed: NetTarget = parse_target(
             target, port=port, protocol=protocol, family=family
         )
+        proxy_cfg = resolve_proxy_config(proxy, no_proxy, direct)
+        if proxy_cfg.spec is not None and protocol is Protocol.UDP:
+            raise UsageError(
+                "cannot probe a UDP port through an HTTP proxy",
+                hint="HTTP CONNECT tunnels are TCP-only; drop --udp or pass "
+                "--direct to bypass the environment's proxy",
+            )
     except UsageError as error:
         raise _usage_exit(error) from error
 
+    spec, route = _route_for(
+        proxy_cfg, target, port=port, protocol=protocol, family=family
+    )
     controls: dict[str, Any] = {
         "count": count,
         "interval_s": interval_s,
         "timeout": timeout,
         "retries": retries,
     }
+    if proxy_cfg.spec is not None:
+        controls["proxy"] = proxy_cfg.spec.display  # redacted echo (FR-014)
     query = dict(parsed.to_dict(), **controls)
     console = make_console(no_color=no_color)
 
+    def _envelope(result_obj: "dict[str, Any]", elapsed_ms: float) -> "dict[str, Any]":
+        envelope = build_envelope(
+            command="net.probe",
+            query=query,
+            result=result_obj,
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+        envelope["route"] = route.to_dict()
+        return envelope
+
     def on_attempt(attempt: ProbeAttempt) -> None:
         if jsonl:
-            envelope = build_envelope(
-                command="net.probe",
-                query=query,
-                result=dict({"kind": "attempt"}, **attempt.to_dict()),
-                error=None,
-                elapsed_ms=attempt.time_ms or 0.0,
+            envelope = _envelope(
+                dict({"kind": "attempt"}, **attempt.to_dict()),
+                attempt.time_ms or 0.0,
             )
             typer.echo(to_json(envelope, indent=None))
         elif not as_json:
@@ -510,6 +718,7 @@ def probe(
             interval=interval_s,
             timeout=timeout,
             retries=retries,
+            proxy=spec,
             on_attempt=on_attempt,
         )
     except OpskitError as error:  # pre-flight only (usage / resolution)
@@ -521,31 +730,18 @@ def probe(
             as_json=as_json,
             jsonl=jsonl,
             prefix=f"{target}: ",
+            route=route,
         )
         raise typer.Exit(int(exit_code_for(error))) from error
 
+    result = replace(result, route=route)
     if jsonl:
-        summary = build_envelope(
-            command="net.probe",
-            query=query,
-            result=dict({"kind": "summary"}, **result.summary_dict()),
-            error=None,
-            elapsed_ms=result.elapsed_ms,
+        summary = _envelope(
+            dict({"kind": "summary"}, **result.summary_dict()), result.elapsed_ms
         )
         typer.echo(to_json(summary, indent=None))
     elif as_json:
-        emit_envelopes(
-            [
-                build_envelope(
-                    command="net.probe",
-                    query=query,
-                    result=result.to_dict(),
-                    error=None,
-                    elapsed_ms=result.elapsed_ms,
-                )
-            ],
-            jsonl=False,
-        )
+        emit_envelopes([_envelope(result.to_dict(), result.elapsed_ms)], jsonl=False)
     else:
         render_probe_summary(result, console=console)
 

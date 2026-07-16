@@ -23,6 +23,7 @@ from opskit.net.models import (
     ProbeAttempt,
     ProbeResult,
     Protocol,
+    Route,
     StopReason,
     Verdict,
     parse_target,
@@ -258,14 +259,14 @@ def test_watch_runs_and_stops_on_interrupt(monkeypatch):
 
 
 def test_watch_signature_ignores_timing_jitter():
-    fast = [("t:1", _open_result("t:1", time_ms=5.0), None)]
-    slow = [("t:1", _open_result("t:1", time_ms=250.0), None)]
+    fast = [("t:1", _open_result("t:1", time_ms=5.0), None, Route.direct())]
+    slow = [("t:1", _open_result("t:1", time_ms=250.0), None, Route.direct())]
     assert _check_signature(fast) == _check_signature(slow)
 
 
 def test_watch_signature_flags_verdict_change():
-    ok = [("t:1", _open_result("t:1"), None)]
-    bad = [("t:1", None, ConnectRefused("refused"))]
+    ok = [("t:1", _open_result("t:1"), None, Route.direct())]
+    bad = [("t:1", None, ConnectRefused("refused"), Route.direct())]
     assert _check_signature(ok) != _check_signature(bad)
 
 

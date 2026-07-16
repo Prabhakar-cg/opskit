@@ -34,6 +34,9 @@ class ExitCode(IntEnum):
     PERMISSION_DENIED = 15
     NOT_FOUND = 16
     NOT_MEMBER = 17
+    TUNNEL_DENIED = 18
+    PROXY_GATEWAY = 19
+    NOT_A_PROXY = 20
 
 
 def exit_code_for(error: OpskitError) -> ExitCode:
