@@ -31,9 +31,9 @@ def _spec(proxy):
 
 @contextlib.contextmanager
 def _dead_tcp_port():
-    """A loopback port with no TCP listener, reserved (via a UDP bind) for the
-    duration so the number can't be recycled by a concurrent test's bind(0)."""
-    guard = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    """A loopback TCP port that refuses: bound (reserving it against concurrent
+    binds) but never listening, held for the duration of the attempt."""
+    guard = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     guard.bind(("127.0.0.1", 0))
     try:
         yield int(guard.getsockname()[1])
