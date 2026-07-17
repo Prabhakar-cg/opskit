@@ -119,6 +119,8 @@ max-args = 9  # DNS query controls (server/transport/timeout/retries/port/…) l
 "src/opskit/**/cli.py" = ["UP007", "UP045", "PLR0913"]
 # ad convenience functions mirror every DirectoryConfig field by contract (python-api.md):
 "src/opskit/ad/api.py" = ["PLR0913"]
+# probe() exposes one keyword-only knob per contract parameter (python-api.md):
+"src/opskit/net/api.py" = ["PLR0913"]
 # The single untyped-ldap3 quarantine module (research R9): lazy imports by design,
 # Any at the wrapped boundary only.
 "src/opskit/ad/directory.py" = ["ANN401", "PLC0415"]

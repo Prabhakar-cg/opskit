@@ -87,6 +87,23 @@ def make_cert():
 
 
 @pytest.fixture
+def scripted_proxy():
+    """Factory starting ScriptedProxy stand-ins (auto-closed at test end)."""
+    from loopback_proxy import ScriptedProxy  # sibling module; tests/ is on sys.path
+
+    created: list[ScriptedProxy] = []
+
+    def _make(behavior: str = "tunnel", **kwargs) -> ScriptedProxy:
+        proxy = ScriptedProxy(behavior, **kwargs).start()
+        created.append(proxy)
+        return proxy
+
+    yield _make
+    for proxy in created:
+        proxy.close()
+
+
+@pytest.fixture
 def entered_listener():
     """Context-manager factory: an already-bound net Listener on a fresh port.
 

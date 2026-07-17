@@ -17,7 +17,7 @@ troubleshooting commands that behave **identically on Windows, macOS, and Linux*
 juggling `nslookup` vs `dig` vs PowerShell cmdlets. It's a **CLI *and* an importable Python
 library**, is pure-Python (nothing to shell out to), and never phones home.
 
-> ⚠️ **Early development.** Ships **DNS** and **TLS** diagnostics today; network / AD categories follow.
+> ⚠️ **Early development.** Ships **DNS**, **TLS**, **network**, and **Active Directory** diagnostics today.
 
 ---
 

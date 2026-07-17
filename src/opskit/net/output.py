@@ -27,6 +27,10 @@ _VERDICT_STYLE = {
     Verdict.CLOSED: "[red]closed[/red]",
     Verdict.INCONCLUSIVE: "[yellow]inconclusive[/yellow]",
     Verdict.RESOLVE_FAILED: "[red]resolve failed[/red]",
+    Verdict.AUTH_REQUIRED: "[red]proxy auth required[/red]",
+    Verdict.TUNNEL_DENIED: "[red]tunnel denied[/red]",
+    Verdict.GATEWAY_FAILED: "[red]unreachable via proxy[/red]",
+    Verdict.NOT_A_PROXY: "[red]not an HTTP proxy[/red]",
 }
 
 
@@ -36,12 +40,24 @@ def _target_label(host: str, port: int, protocol: Protocol) -> str:
 
 
 def render_check(result: CheckResult, *, console: Console) -> None:
-    """Print the open verdict line: address, family, and timing detail."""
+    """Print the open verdict line: address, family, and timing detail.
+
+    A proxied check discloses its route (redacted proxy + provenance) and labels
+    the timing as tunnel establishment time; direct output is unchanged.
+    """
     target = result.target
     console.print(
         f"{_VERDICT_STYLE[result.verdict]}  "
         f"{_target_label(target.host, target.port, target.protocol)}"
     )
+    if result.route.via == "http-proxy":
+        console.print(
+            f"[dim]via {escape(result.route.proxy or '')} "
+            f"({escape(result.route.source)}) — tunnel established through "
+            f"{escape(result.address)} ({result.family}) "
+            f"in {result.time_ms:.1f} ms[/dim]"
+        )
+        return
     detail = "reply from" if target.protocol is Protocol.UDP else "connected to"
     console.print(
         f"[dim]{detail} {escape(result.address)} ({result.family}) "
@@ -66,12 +82,21 @@ def render_probe_attempt(
 
 
 def render_probe_summary(result: ProbeResult, *, console: Console) -> None:
-    """Print the probe summary block (counts and min/avg/max statistics)."""
+    """Print the probe summary block (counts and min/avg/max statistics).
+
+    A proxied run discloses its route; timings are tunnel establishment times.
+    """
     target = result.target
     console.print(
         f"\n[bold]--- {_target_label(target.host, target.port, target.protocol)} "
         f"probe statistics ---[/bold]"
     )
+    if result.route.via == "http-proxy":
+        console.print(
+            f"[dim]via {escape(result.route.proxy or '')} "
+            f"({escape(result.route.source)}) — timings are tunnel "
+            f"establishment times[/dim]"
+        )
     line = (
         f"{result.completed} attempts, {result.successes} succeeded, "
         f"{result.failures} failed"
