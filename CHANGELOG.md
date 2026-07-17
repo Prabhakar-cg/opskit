@@ -5,6 +5,13 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.5](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.4...opskit-v0.1.5) (2026-07-17)
+
+
+### Features
+
+* **net:** proxy-aware reachability checks via HTTP CONNECT ([#38](https://github.com/Prabhakar-cg/opskit/issues/38)) ([15eb3b7](https://github.com/Prabhakar-cg/opskit/commit/15eb3b75dc0fbcc67ab33a2aa03058f9eb48a847))
+
 ## [0.1.4](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.3...opskit-v0.1.4) (2026-07-11)
 
 
