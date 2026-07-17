@@ -129,6 +129,11 @@ class ScriptedProxy:
             if self.behavior == "garbage":
                 conn.sendall(b"SSH-2.0-NotAProxy_1.0\r\n")
                 return
+            if self.behavior == "truncated-ok":
+                # A success status line with no head terminator, then close: must
+                # never be reported as an established tunnel.
+                conn.sendall(b"HTTP/1.1 200 OK\r\n")
+                return
 
             status = {
                 "auth": (407, "Proxy Authentication Required"),

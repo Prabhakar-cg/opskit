@@ -454,12 +454,9 @@ def check(
         family = _family_flag(ipv4, ipv6)
         target_list = collect_target_list(targets, input_file)
         proxy_cfg = resolve_proxy_config(proxy, no_proxy, direct)
-        if proxy_cfg.spec is not None and protocol is Protocol.UDP:
-            raise UsageError(
-                "cannot check a UDP port through an HTTP proxy",
-                hint="HTTP CONNECT tunnels are TCP-only; drop --udp or pass "
-                "--direct to bypass the environment's proxy",
-            )
+        # No run-level UDP guard: NO_PROXY-exempt targets are checked directly, so
+        # the api layer rejects UDP+proxy per target (only where the proxy is in
+        # force, T028) and exempt targets keep working.
     except UsageError as error:
         raise _usage_exit(error) from error
 
@@ -664,7 +661,12 @@ def probe(
             target, port=port, protocol=protocol, family=family
         )
         proxy_cfg = resolve_proxy_config(proxy, no_proxy, direct)
-        if proxy_cfg.spec is not None and protocol is Protocol.UDP:
+        spec, route = _route_for(
+            proxy_cfg, target, port=port, protocol=protocol, family=family
+        )
+        if spec is not None and protocol is Protocol.UDP:
+            # Guard only when the proxy is in force for THIS target (T028): a
+            # NO_PROXY-exempt target probes directly and stays valid with --udp.
             raise UsageError(
                 "cannot probe a UDP port through an HTTP proxy",
                 hint="HTTP CONNECT tunnels are TCP-only; drop --udp or pass "
@@ -672,10 +674,6 @@ def probe(
             )
     except UsageError as error:
         raise _usage_exit(error) from error
-
-    spec, route = _route_for(
-        proxy_cfg, target, port=port, protocol=protocol, family=family
-    )
     controls: dict[str, Any] = {
         "count": count,
         "interval_s": interval_s,

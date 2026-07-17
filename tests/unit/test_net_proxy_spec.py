@@ -154,6 +154,9 @@ class TestProxyExempt:
             ("anything.example", "*"),  # wildcard
             ("internal.corp.example", "internal.corp.example:443"),  # port ignored
             ("internal.corp.example.", "internal.corp.example"),  # trailing dot host
+            ("::1", "::1"),  # bare IPv6 literal (colons are not a port)
+            ("2001:db8::1", "[2001:db8::1]"),  # bracketed IPv6
+            ("2001:db8::1", "[2001:db8::1]:443"),  # bracketed IPv6 + port
         ],
     )
     def test_matches(self, host, entry):

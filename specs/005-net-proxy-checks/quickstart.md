@@ -61,8 +61,8 @@ Then confirm each override:
 
 ```bash
 HTTPS_PROXY=http://127.0.0.1:39999 uv run opskit net check example.com:443 --direct --json   # route.via=direct
-HTTPS_PROXY=http://127.0.0.1:39999 NO_PROXY=example.com uv run opskit net check example.com:443 --json \
-  # route.source=no-proxy-exemption, checked directly
+# route.source=no-proxy-exemption, checked directly:
+HTTPS_PROXY=http://127.0.0.1:39999 NO_PROXY=example.com uv run opskit net check example.com:443 --json
 ```
 
 ## 5. Credential redaction spot-check (belt to the test suite's braces)

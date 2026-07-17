@@ -321,9 +321,14 @@ def proxy_exempt(host: str, no_proxy: Sequence[str]) -> bool:
             continue
         if entry == "*":
             return True
-        head, _, tail = entry.rpartition(":")
-        if head and tail.isdigit():
-            entry = head
+        if entry.startswith("["):
+            # Bracketed IPv6, optionally with a port: [2001:db8::1] / [::1]:443.
+            entry = entry[1:].partition("]")[0]
+        elif entry.count(":") == 1:
+            # Exactly one colon = host:port; more = a bare IPv6 literal (no port).
+            head, _, tail = entry.partition(":")
+            if tail.isdigit():
+                entry = head
         entry = entry.lstrip(".").rstrip(".")
         if not entry:
             continue

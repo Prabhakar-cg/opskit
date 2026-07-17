@@ -6,6 +6,7 @@ US2 extends this file with the full non-2xx classification matrix (research R4).
 
 from __future__ import annotations
 
+import contextlib
 import socket
 
 import pytest
@@ -28,12 +29,16 @@ def _spec(proxy):
     return parse_proxy(proxy.address)
 
 
-def _free_port() -> int:
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.bind(("127.0.0.1", 0))
-    port = int(probe.getsockname()[1])
-    probe.close()
-    return port
+@contextlib.contextmanager
+def _dead_tcp_port():
+    """A loopback port with no TCP listener, reserved (via a UDP bind) for the
+    duration so the number can't be recycled by a concurrent test's bind(0)."""
+    guard = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    guard.bind(("127.0.0.1", 0))
+    try:
+        yield int(guard.getsockname()[1])
+    finally:
+        guard.close()
 
 
 class TestTunnelEstablished:
@@ -80,11 +85,12 @@ class TestTunnelEstablished:
 
 class TestProxyHopFailures:
     def test_refused_proxy_raises_proxy_connect_refused(self):
-        spec = parse_proxy(f"127.0.0.1:{_free_port()}")
-        with pytest.raises((ProxyConnectRefused, ProxyConnectTimeout)) as excinfo:
-            # A closed loopback port refuses on Linux/macOS but can time out on
-            # Windows — assert the ProxyError class family (CLAUDE.md rule).
-            connect_via_proxy(spec, "internal.example", 443, timeout=1.0, retries=0)
+        with _dead_tcp_port() as port:
+            spec = parse_proxy(f"127.0.0.1:{port}")
+            with pytest.raises((ProxyConnectRefused, ProxyConnectTimeout)) as excinfo:
+                # A closed loopback port refuses on Linux/macOS but can time out on
+                # Windows — assert the ProxyError class family (CLAUDE.md rule).
+                connect_via_proxy(spec, "internal.example", 443, timeout=1.0, retries=0)
         assert isinstance(excinfo.value, ProxyError)
         assert "proxy" in excinfo.value.message
 
@@ -92,7 +98,7 @@ class TestProxyHopFailures:
         spec = parse_proxy("no-such-proxy.invalid:3128")
         with pytest.raises(ProxyResolutionError) as excinfo:
             connect_via_proxy(spec, "internal.example", 443, timeout=2.0, retries=0)
-        assert "no-such-proxy.invalid" in excinfo.value.message
+        assert "cannot resolve proxy" in excinfo.value.message
         assert excinfo.value.hint is not None
 
     def test_silent_proxy_times_out_and_is_attributed(self, scripted_proxy):
@@ -161,6 +167,16 @@ class TestConnectClassification:
             connect_via_proxy(_spec(proxy), "dead.example", 443, timeout=2.0, retries=0)
         assert "unreachable from proxy" in excinfo.value.message
         assert "proxy hop is healthy" in (excinfo.value.hint or "")
+
+    def test_truncated_success_head_is_protocol_error(self, scripted_proxy):
+        # "HTTP/1.1 200 OK" then EOF before the head terminator: the connection is
+        # already closed, so reporting OPEN would be a lie — protocol error.
+        proxy = scripted_proxy("truncated-ok")
+        with pytest.raises(ProxyProtocolError) as excinfo:
+            connect_via_proxy(
+                _spec(proxy), "internal.example", 443, timeout=2.0, retries=0
+            )
+        assert "before completing the tunnel response" in excinfo.value.message
 
     def test_garbage_response_raises_protocol_error(self, scripted_proxy):
         proxy = scripted_proxy("garbage")

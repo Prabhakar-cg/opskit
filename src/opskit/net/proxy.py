@@ -93,13 +93,20 @@ def _build_request(proxy: ProxySpec, host: str, port: int) -> bytes:
     return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii")
 
 
-def _read_response_head(sock: socket.socket, proxy: ProxySpec, timeout: float) -> str:
-    """Read the response head (through the blank line) under the per-stage timeout.
+def _read_response_head(
+    sock: socket.socket, proxy: ProxySpec, timeout: float
+) -> tuple[str, bool]:
+    """Read the response head under the per-stage timeout.
+
+    Returns:
+        ``(head, complete)`` — ``complete`` is False when the connection closed
+        before the blank-line terminator (a truncated head is still classified,
+        e.g. a non-HTTP banner, but can never count as tunnel success).
 
     Raises:
         socket.timeout: When the proxy stays silent (caller maps to timeout class).
-        ProxyProtocolError: When the connection closes without a complete response
-            or the head exceeds a sane size.
+        ProxyProtocolError: When the connection closes without any response or the
+            head exceeds a sane size.
     """
     sock.settimeout(timeout)
     data = b""
@@ -107,7 +114,9 @@ def _read_response_head(sock: socket.socket, proxy: ProxySpec, timeout: float) -
         chunk = sock.recv(4096)
         if not chunk:
             if data:
-                break  # closed mid-head: classify whatever arrived (garbage banner)
+                # Closed mid-head: classify whatever arrived (garbage banner or a
+                # truncated status) — the caller must treat it as incomplete.
+                return data.decode("latin-1"), False
             raise ProxyProtocolError(
                 f"proxy {proxy.display} closed the connection without a response",
                 hint="check the proxy address and port — the endpoint does not "
@@ -119,7 +128,7 @@ def _read_response_head(sock: socket.socket, proxy: ProxySpec, timeout: float) -
                 f"proxy {proxy.display} sent an oversized response head",
                 hint="the endpoint does not behave like an HTTP proxy",
             )
-    return data.split(b"\r\n\r\n", 1)[0].decode("latin-1")
+    return data.split(b"\r\n\r\n", 1)[0].decode("latin-1"), True
 
 
 def _parse_head(head: str, proxy: ProxySpec) -> tuple[int, str, list[str]]:
@@ -249,14 +258,25 @@ def _attempt(
     family: str | None,
 ) -> tuple[socket.socket, tcp.TcpConnection]:
     """One full tunnel attempt: proxy TCP connect + CONNECT exchange."""
-    sock, hop = _connect_proxy_hop(proxy, timeout=timeout, family=family)
+    # Validate/encode the target and build the request BEFORE opening the proxy
+    # socket: a UsageError here must never leak an open socket.
     target = _connect_target(host, port)
+    request = _build_request(proxy, host, port)
+    sock, hop = _connect_proxy_hop(proxy, timeout=timeout, family=family)
     # The socket survives only the success return; every raise path closes it.
     try:
-        sock.sendall(_build_request(proxy, host, port))
-        head = _read_response_head(sock, proxy, timeout)
+        sock.sendall(request)
+        head, complete = _read_response_head(sock, proxy, timeout)
         code, reason, schemes = _parse_head(head, proxy)
         if _HTTP_OK <= code < _HTTP_REDIRECT:
+            if not complete:
+                # A 2xx whose head never completed and whose connection is already
+                # closed cannot be a usable tunnel — never report OPEN for it.
+                raise ProxyProtocolError(
+                    f"proxy {proxy.display} closed the connection before "
+                    f"completing the tunnel response for {target}",
+                    hint="the endpoint does not behave like an HTTP proxy",
+                )
             return sock, hop
         raise _classify_status(proxy, code, reason, schemes, target)
     except socket.timeout as exc:

@@ -74,16 +74,21 @@ class TestCheckViaProxy:
 
     def test_udp_with_env_vars_only_is_not_affected(self, scripted_proxy, monkeypatch):
         # Env vars alone never route the library: UDP without an explicit proxy
-        # keeps working even when HTTPS_PROXY is set (Art. VII).
+        # takes the direct UDP path even when HTTPS_PROXY is set (Art. VII). The
+        # probe seam is injected — no dependence on live OS port state.
         proxy = scripted_proxy("tunnel")
         monkeypatch.setenv("HTTPS_PROXY", f"http://{proxy.address}")
-        from opskit.net.errors import NetError
+        from opskit.net.errors import UdpInconclusive
 
-        with pytest.raises(NetError):
-            # Loopback UDP to a fresh port: closed or inconclusive — but never a
-            # UsageError, proving the env proxy was not consulted.
+        def fake_udp_probe(host, port, **kwargs):
+            raise UdpInconclusive("no response", hint="open or filtered")
+
+        monkeypatch.setattr("opskit.net.api.udp_probe", fake_udp_probe)
+        with pytest.raises(UdpInconclusive):
+            # The injected UDP outcome — never a UsageError, proving the env
+            # proxy was not consulted.
             api.check(
-                "127.0.0.1:9",
+                "udp.example:123",
                 protocol=Protocol.UDP,
                 timeout=0.3,
                 retries=0,
@@ -220,8 +225,10 @@ class TestPublicSurface:
         assert result.route.via == "direct"
 
     def test_library_never_prints(self, scripted_proxy, capsys):
+        from opskit.net.errors import ProxyError
+
         proxy = scripted_proxy("deny")
-        with pytest.raises(Exception):  # noqa: B017 - any typed error; output is the point
+        with pytest.raises(ProxyError):  # the typed failure must stay silent
             api.check(
                 "blocked.example:443", proxy=proxy.address, timeout=2.0, retries=0
             )

@@ -354,8 +354,10 @@ for an induced proxy-unreachable and an induced tunnel-denied failure.
 ### Key Entities
 
 - **Proxy Specification**: the proxy the user nominated — host, port, optional credentials
-  (never rendered), where it came from (flag, environment, profile, config), and the
-  exemption list in force.
+  (never rendered). Provenance (flag, environment, profile, config) and the exemption list
+  in force are run-level facts resolved by the calling layer (the CLI); the library takes
+  the resolved specification explicitly, exposes `proxy_exempt()` for caller-side routing,
+  and surfaces provenance per target through the Route.
 - **Route**: how a given target was actually checked — direct, or via which proxy — attached
   to every result so mixed batches stay unambiguous.
 - **Proxied Check Result**: the single-shot outcome — one of the FR-009 verdicts, the route,

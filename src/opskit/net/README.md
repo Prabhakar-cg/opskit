@@ -158,8 +158,9 @@ CONNECT exchange) — don't compare it with direct connect times. Only silence i
 retried; an answered outcome is definitive. Worst case per target is about
 `2 × timeout × (retries + 1)`. Passwords never appear in any output, log, or
 error — the proxy is always shown as `user:***@host:port`. UDP cannot be proxied
-(CONNECT is TCP-only): `--udp` with a proxy is a usage error; use `--direct` if
-your environment sets a proxy variable.
+(CONNECT is TCP-only): `--udp` is a usage error for any target the proxy is in
+force for (exempt targets still check directly); use `--direct` if your
+environment sets a proxy variable.
 
 ## Verdicts & exit codes
 
@@ -272,7 +273,7 @@ or config files (that resolution belongs to the CLI or your own code):
 from opskit.net import check, parse_proxy, proxy_exempt, ProxyError, ProxyGatewayError
 
 spec = parse_proxy("http://svc:secret@proxy.corp.example:3128")
-if not proxy_exempt("internal.example", ["*.corp.example"]):
+if not proxy_exempt("internal.example", [".corp.example"]):
     try:
         result = check("internal.example:443", proxy=spec)
         print(result.route.via, result.route.proxy, result.time_ms)  # tunnel ms

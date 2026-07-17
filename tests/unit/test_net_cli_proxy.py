@@ -424,23 +424,21 @@ class TestProxiedExitCodes:
 
 
 class TestUdpGuard:
-    def test_udp_plus_proxy_flag_is_usage_error(self, capture_check):
+    # The guard lives in the api layer and fires per target, pre-I/O, only where
+    # the proxy is in force (T028) — so these two run the real api.check.
+    def test_udp_plus_proxy_flag_is_usage_error(self):
         result = runner.invoke(
             app,
             ["net", "check", "ntp.example:123", "--udp", "--proxy", "p.corp:3128"],
         )
         assert result.exit_code == 2
         assert "UDP" in result.output or "udp" in result.output.lower()
-        assert capture_check == []  # rejected before any target ran
 
-    def test_udp_plus_env_proxy_is_usage_error_with_direct_hint(
-        self, capture_check, monkeypatch
-    ):
+    def test_udp_plus_env_proxy_is_usage_error_with_direct_hint(self, monkeypatch):
         monkeypatch.setenv("HTTPS_PROXY", "http://envproxy.corp:8080")
         result = runner.invoke(app, ["net", "check", "ntp.example:123", "--udp"])
         assert result.exit_code == 2
         assert "--direct" in result.output
-        assert capture_check == []
 
     def test_udp_plus_env_proxy_with_direct_works(self, capture_check, monkeypatch):
         monkeypatch.setenv("HTTPS_PROXY", "http://envproxy.corp:8080")
@@ -449,6 +447,18 @@ class TestUdpGuard:
         )
         assert result.exit_code == 0
         assert capture_check[0] is None
+
+    def test_udp_exempt_target_checks_directly(self, capture_check, monkeypatch):
+        # An env proxy with a NO_PROXY exemption for the target: the proxy is NOT
+        # in force for it, so --udp stays valid and the check runs direct.
+        monkeypatch.setenv("HTTPS_PROXY", "http://envproxy.corp:8080")
+        monkeypatch.setenv("NO_PROXY", "ntp.example")
+        result = runner.invoke(
+            app, ["net", "check", "ntp.example:123", "--udp", "--json"]
+        )
+        assert result.exit_code == 0
+        assert capture_check[0] is None
+        assert _route(result.stdout)["source"] == "no-proxy-exemption"
 
 
 class TestWatchSignatureRoute:

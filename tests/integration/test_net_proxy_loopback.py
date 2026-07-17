@@ -9,6 +9,7 @@ can time out on Windows).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import socket
 
@@ -37,12 +38,16 @@ def clean_proxy_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
-def _free_port() -> int:
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.bind(("127.0.0.1", 0))
-    port = int(probe.getsockname()[1])
-    probe.close()
-    return port
+@contextlib.contextmanager
+def _dead_tcp_port():
+    """A loopback port with no TCP listener, reserved (via a UDP bind) for the
+    duration so the number can't be recycled by a concurrent test's bind(0)."""
+    guard = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    guard.bind(("127.0.0.1", 0))
+    try:
+        yield int(guard.getsockname()[1])
+    finally:
+        guard.close()
 
 
 def _check(*args: str) -> tuple[int, str]:
@@ -105,16 +110,16 @@ class TestOutcomeMatrix:
     def test_proxy_unreachable_class_family(self):
         # Nothing listens here: refused on Linux/macOS, may time out on Windows —
         # either way the failure is attributed to the proxy hop (exit 8 or 6).
-        dead = f"127.0.0.1:{_free_port()}"
-        code, output = _check(
-            "internal.example:443",
-            "--proxy",
-            dead,
-            "--timeout",
-            "1",
-            "--retries",
-            "0",
-        )
+        with _dead_tcp_port() as port:
+            code, output = _check(
+                "internal.example:443",
+                "--proxy",
+                f"127.0.0.1:{port}",
+                "--timeout",
+                "1",
+                "--retries",
+                "0",
+            )
         assert code in (8, 6)
         assert "proxy" in output
 
