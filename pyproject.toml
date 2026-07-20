@@ -11,7 +11,7 @@ requires-python = ">=3.9.2"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "prabhakar-cg" }]
-keywords = ["dns", "diagnostics", "troubleshooting", "cli", "networking", "ops"]
+keywords = ["dns", "diagnostics", "troubleshooting", "cli", "networking", "ops", "storage"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -37,6 +37,9 @@ dependencies = [
     # TLS category: handshake/chain retrieval + certificate parsing (PyCA-maintained).
     "pyopenssl>=24,<27",
     "cryptography>=48.0.1,<50",  # 48.0.1 fixes GHSA-537c-gmf6-5ccf
+    # Storage category: cross-platform volume/partition/filesystem enumeration + utilization
+    # (no stdlib API covers this on Windows/macOS/Linux uniformly — research R1).
+    "psutil>=6,<8",
 ]
 
 [project.urls]
@@ -61,6 +64,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pyright>=1.1.380",
+    "types-psutil>=6",  # community stubs — psutil itself ships no py.typed marker
     # Orchestration/audit tooling runs only on the default (3.12/3.13) CI jobs, never on the
     # Python 3.9 test leg. Scoping them to >=3.10 keeps their transitive deps (pip-audit's
     # requests/urllib3/msgpack, virtualenv's filelock, pip) off the 3.9 resolution, where the
