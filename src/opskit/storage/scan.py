@@ -102,8 +102,15 @@ def _walk(root: Path, *, include_hidden: bool) -> _ScanState:
                 elif entry.is_file(follow_symlinks=False):
                     own += entry.stat(follow_symlinks=False).st_size
                     state.file_count += 1
-            except OSError:
-                continue  # a single unreadable entry doesn't abort the directory
+            except OSError as exc:
+                # a single unreadable entry doesn't abort the directory, but the
+                # containing directory's total becomes a lower bound like any
+                # other inaccessible-subtree case.
+                state.failed.add(current)
+                state.inaccessible.append(
+                    InaccessiblePath(path=entry.path, reason=_reason(exc))
+                )
+                continue
         state.own_bytes[current] = own
     return state
 

@@ -11,6 +11,7 @@ results/exceptions into human or JSON output and structured exit codes.
 """
 
 import json
+import time
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -80,10 +81,12 @@ def volumes(
     ] = False,
 ) -> None:
     """List every mounted, non-pseudo volume with utilization and filesystem type."""
+    start = time.perf_counter()
     try:
         result = api.list_volumes()
     except OpskitError as error:
         raise _error_exit(error) from error
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
 
     if jsonl:
         for volume in result:
@@ -94,7 +97,7 @@ def volumes(
             query={},
             result={"volumes": [v.to_dict() for v in result]},
             error=None,
-            elapsed_ms=0.0,
+            elapsed_ms=elapsed_ms,
         )
         typer.echo(to_json(envelope))
     else:
@@ -135,10 +138,12 @@ def disks(
     ] = False,
 ) -> None:
     """List physical/logical disks, each with its nested partitions."""
+    start = time.perf_counter()
     try:
         result = api.list_disks()
     except OpskitError as error:
         raise _error_exit(error) from error
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
 
     if jsonl:
         for disk in result:
@@ -149,7 +154,7 @@ def disks(
             query={},
             result={"disks": [d.to_dict() for d in result]},
             error=None,
-            elapsed_ms=0.0,
+            elapsed_ms=elapsed_ms,
         )
         typer.echo(to_json(envelope))
     else:
@@ -170,7 +175,10 @@ _SIZE_EPILOG = """\
 
 
 def _size_envelope(
-    path: str, result: Optional[DirSizeResult], error: Optional[OpskitError]
+    path: str,
+    result: Optional[DirSizeResult],
+    error: Optional[OpskitError],
+    elapsed_ms: float,
 ) -> dict[str, Any]:
     if result is not None:
         return build_envelope(
@@ -182,14 +190,14 @@ def _size_envelope(
             },
             result=result.to_dict(),
             error=None,
-            elapsed_ms=0.0,
+            elapsed_ms=elapsed_ms,
         )
     return build_envelope(
         command="storage.size",
         query={"path": path},
         result=None,
         error=error,
-        elapsed_ms=0.0,
+        elapsed_ms=elapsed_ms,
     )
 
 
@@ -268,19 +276,28 @@ def size(
     except UsageError as usage_error:
         raise _error_exit(usage_error) from usage_error
 
-    outcomes = collect_outcomes(
-        targets, lambda p: api.dir_size(p, depth=depth, include_hidden=include_hidden)
-    )
+    timings: dict[str, float] = {}
+
+    def _timed_dir_size(p: str) -> DirSizeResult:
+        start = time.perf_counter()
+        try:
+            return api.dir_size(p, depth=depth, include_hidden=include_hidden)
+        finally:
+            timings[p] = (time.perf_counter() - start) * 1000.0
+
+    outcomes = collect_outcomes(targets, _timed_dir_size)
 
     if as_json or jsonl:
-        envelopes = [_size_envelope(t, r, e) for t, r, e in outcomes]
+        envelopes = [
+            _size_envelope(t, r, e, timings.get(t, 0.0)) for t, r, e in outcomes
+        ]
         emit_envelopes(envelopes, jsonl=jsonl)
     else:
         console = make_console(no_color=no_color)
         batch = len(targets) > 1
         for target, result, error in outcomes:
             if batch:
-                console.print(f"[bold];; {escape(target)}[/bold]")
+                console.print(f"[bold]{escape(target)}:[/bold]")
             if error is not None:
                 message = f"error: {error.message}"
                 if error.hint:

@@ -6,7 +6,7 @@ JSON envelope. See specs/006-storage-diagnostics/data-model.md.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -125,7 +125,7 @@ class DirSizeResult:
     include_hidden: bool
     depth_requested: int
     breakdown: tuple[ChildDirSize, ...] = ()
-    inaccessible: tuple[InaccessiblePath, ...] = field(default_factory=tuple)
+    inaccessible: tuple[InaccessiblePath, ...] = ()
 
     @property
     def incomplete(self) -> bool:

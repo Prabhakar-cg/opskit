@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -137,6 +138,48 @@ def test_dir_size_permission_denied_subdirectory_is_skipped_not_fatal(tmp_path):
     assert result.incomplete is True
     assert len(result.inaccessible) == 1
     assert result.inaccessible[0].path == str(blocked)
+
+
+class _FailingStatEntry:
+    """A minimal os.DirEntry stand-in whose `.stat()` raises — simulating a file
+    deleted or locked between `scandir()` listing it and this pass touching it."""
+
+    def __init__(self, name: str, path: str) -> None:
+        self.name = name
+        self.path = path
+
+    def is_symlink(self) -> bool:
+        return False
+
+    def is_dir(self, *, follow_symlinks: bool = False) -> bool:
+        return False
+
+    def is_file(self, *, follow_symlinks: bool = False) -> bool:
+        return True
+
+    def stat(self, *, follow_symlinks: bool = False):
+        raise OSError("vanished mid-scan")
+
+
+def test_dir_size_per_entry_failure_is_recorded_not_silently_dropped(
+    tmp_path, monkeypatch
+):
+    _write(tmp_path / "a.bin", 10)
+    ghost = _FailingStatEntry("ghost.bin", str(tmp_path / "ghost.bin"))
+    real_entries = list(os.scandir(tmp_path))
+
+    def _fake_scandir(path):
+        return (
+            iter([*real_entries, ghost]) if Path(path) == tmp_path else os.scandir(path)
+        )
+
+    monkeypatch.setattr(scan.os, "scandir", _fake_scandir)
+
+    result = scan.dir_size(tmp_path)
+
+    assert result.total_bytes == 10  # the ghost entry contributes nothing
+    assert result.incomplete is True
+    assert any(item.path == ghost.path for item in result.inaccessible)
 
 
 def test_dir_size_path_not_found(tmp_path):
