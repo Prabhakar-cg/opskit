@@ -222,7 +222,7 @@ def test_aggregate_total_equals_sum_of_own_bytes(tree):
         paths[i]: (paths[p] if p is not None else None)
         for i, p in enumerate(parent_index)
     }
-    state.own_bytes = dict(zip(paths, own_bytes, strict=True))
+    state.own_bytes = dict(zip(paths, own_bytes))
     state.failed = {paths[i] for i in failed}
 
     total_of, incomplete_of = scan._aggregate(state)

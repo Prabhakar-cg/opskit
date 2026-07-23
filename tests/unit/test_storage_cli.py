@@ -170,7 +170,11 @@ def test_size_not_found_exit_code(monkeypatch):
     monkeypatch.setattr("opskit.storage.cli.api.dir_size", fake)
     result = runner.invoke(app, ["storage", "size", "/no/such/path"])
     assert result.exit_code == 16
-    assert "path does not exist" in result.stderr
+    try:
+        stderr_text = result.stderr
+    except ValueError:  # click < 8.2 mixes the streams into output
+        stderr_text = result.output
+    assert "path does not exist" in stderr_text
 
 
 def test_size_incomplete_result_exits_partial(monkeypatch):
