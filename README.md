@@ -17,7 +17,8 @@ troubleshooting commands that behave **identically on Windows, macOS, and Linux*
 juggling `nslookup` vs `dig` vs PowerShell cmdlets. It's a **CLI *and* an importable Python
 library**, is pure-Python (nothing to shell out to), and never phones home.
 
-> ⚠️ **Early development.** Ships **DNS**, **TLS**, **network**, and **Active Directory** diagnostics today.
+> ⚠️ **Early development.** Ships **DNS**, **TLS**, **network**, **Active Directory**, and
+> **storage** diagnostics today.
 
 ---
 
@@ -60,6 +61,7 @@ Each command group is self-contained and documented in its own README next to th
 | `opskit tls` | TLS verification — layered endpoint checks, certificate/chain inspection, expiry warnings, private-PKI trust | [tls/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/tls/README.md) |
 | `opskit net` | Network reachability — TCP/UDP port checks, ping-style probes, temporary metadata-only listener | [net/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/net/README.md) |
 | `opskit ad` | Active Directory / LDAP diagnostics — account sign-in status, group membership (nested), directory/bind checks, object lookup (`pip install "opskit[ad]"`) | [ad/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/ad/README.md) |
+| `opskit storage` | Storage diagnostics — mounted-volume utilization, disk/partition inventory, recursive directory size with depth breakdown | [storage/README.md](https://github.com/Prabhakar-cg/opskit/blob/main/src/opskit/storage/README.md) |
 
 Quick taste of the DNS group:
 
