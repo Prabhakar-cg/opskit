@@ -387,9 +387,10 @@ def check(
         Optional[str],
         typer.Option(
             "--proxy",
-            help="HTTP proxy to tunnel through (host:port or "
-            "http://user:pass@host:port); falls back to HTTPS_PROXY/HTTP_PROXY/"
-            "ALL_PROXY. Worst case per target is about 2 x timeout x (retries+1).",
+            help="HTTP proxy to tunnel through: host:port, or user:pass@host:port "
+            "(only the plain http scheme is accepted); falls back to "
+            "HTTPS_PROXY/HTTP_PROXY/ALL_PROXY. Worst case per target is about "
+            "2 x timeout x (retries+1).",
             rich_help_panel="Query controls",
         ),
     ] = None,
@@ -608,9 +609,10 @@ def probe(
         Optional[str],
         typer.Option(
             "--proxy",
-            help="HTTP proxy to tunnel through (host:port or "
-            "http://user:pass@host:port); falls back to HTTPS_PROXY/HTTP_PROXY/"
-            "ALL_PROXY. Timings become tunnel establishment times.",
+            help="HTTP proxy to tunnel through: host:port, or user:pass@host:port "
+            "(only the plain http scheme is accepted); falls back to "
+            "HTTPS_PROXY/HTTP_PROXY/ALL_PROXY. Timings become tunnel establishment "
+            "times.",
             rich_help_panel="Query controls",
         ),
     ] = None,
