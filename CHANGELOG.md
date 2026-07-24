@@ -5,6 +5,13 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.7](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.6...opskit-v0.1.7) (2026-07-24)
+
+
+### Bug Fixes
+
+* **net:** reword --proxy help text to clear SonarCloud security gate ([#43](https://github.com/Prabhakar-cg/opskit/issues/43)) ([ea3eef7](https://github.com/Prabhakar-cg/opskit/commit/ea3eef787cd3830e55312594af8bfe49b3416465))
+
 ## [0.1.6](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.5...opskit-v0.1.6) (2026-07-23)
 
 
