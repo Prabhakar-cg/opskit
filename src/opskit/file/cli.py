@@ -29,13 +29,21 @@ from opskit.core.output import make_console
 from opskit.core.result import build_envelope
 from opskit.file import api
 from opskit.file.models import (
+    ChecksumResult,
     ConversionResult,
+    IdentificationResult,
     LineEnding,
     LineEndingReport,
     StructuredFormat,
     ValidationResult,
 )
-from opskit.file.output import render_conversion, render_lineendings, render_validation
+from opskit.file.output import (
+    render_checksum,
+    render_conversion,
+    render_identify,
+    render_lineendings,
+    render_validation,
+)
 
 app = typer.Typer(
     name="file",
@@ -777,3 +785,226 @@ def pretty_cmd(
     else:
         render_conversion(outcome.result, console=make_console(no_color=no_color))
     raise typer.Exit(0)
+
+
+_IDENTIFY_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file identify downloaded_file
+  opskit file identify *.bin --json
+  opskit file identify -i paths.txt --jsonl
+"""
+
+
+def _identify_envelope(
+    path: str,
+    result: Optional[IdentificationResult],
+    error: Optional[OpskitError],
+    elapsed_ms: float,
+) -> dict[str, Any]:
+    query: dict[str, Any] = {"path": path}
+    if result is not None:
+        return build_envelope(
+            command="file.identify",
+            query=query,
+            result=result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+    return build_envelope(
+        command="file.identify",
+        query=query,
+        result=None,
+        error=error,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+@app.command(name="identify", epilog=_IDENTIFY_EPILOG)
+def identify_cmd(
+    paths: Annotated[
+        Optional[list[str]],
+        typer.Argument(help="File path(s) to identify (or use --input-file)."),
+    ] = None,
+    input_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--input-file",
+            "-i",
+            help="File of paths, one per line (# comments allowed); '-' reads stdin.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    jsonl: Annotated[
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Identify a file's actual type from its content, flagging extension mismatches."""
+    try:
+        targets = collect_target_list(paths, input_file)
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    timings: dict[str, float] = {}
+
+    def _timed_identify(p: str) -> IdentificationResult:
+        start = time.perf_counter()
+        try:
+            return api.identify(p)
+        finally:
+            timings[p] = (time.perf_counter() - start) * 1000.0
+
+    outcomes = collect_outcomes(targets, _timed_identify)
+
+    if as_json or jsonl:
+        envelopes = [
+            _identify_envelope(t, r, e, timings.get(t, 0.0)) for t, r, e in outcomes
+        ]
+        emit_envelopes(envelopes, jsonl=jsonl)
+    else:
+        console = make_console(no_color=no_color)
+        for _, result, error in outcomes:
+            if error is not None:
+                message = f"error: {error.message}"
+                if error.hint:
+                    message += f"\nhint: {error.hint}"
+                typer.echo(message, err=True)
+            elif result is not None:
+                render_identify(result, console=console)
+
+    codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
+    raise typer.Exit(int(aggregate_exit(codes)))
+
+
+_HASH_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file hash artifact.tar.gz
+  opskit file hash *.tar.gz --algo sha256 --jsonl
+"""
+
+
+def _hash_envelope(
+    path: str,
+    result: Optional[ChecksumResult],
+    error: Optional[OpskitError],
+    elapsed_ms: float,
+    *,
+    algo: str,
+) -> dict[str, Any]:
+    query: dict[str, Any] = {"path": path, "algo": algo}
+    if result is not None:
+        return build_envelope(
+            command="file.hash",
+            query=query,
+            result=result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+    return build_envelope(
+        command="file.hash",
+        query=query,
+        result=None,
+        error=error,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+@app.command(name="hash", epilog=_HASH_EPILOG)
+def hash_cmd(
+    paths: Annotated[
+        Optional[list[str]],
+        typer.Argument(help="File path(s) to checksum (or use --input-file)."),
+    ] = None,
+    algo: Annotated[
+        str,
+        typer.Option("--algo", help="Hash algorithm.", rich_help_panel="Query"),
+    ] = "sha256",
+    input_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--input-file",
+            "-i",
+            help="File of paths, one per line (# comments allowed); '-' reads stdin.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    jsonl: Annotated[
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Compute a checksum for each file."""
+    try:
+        targets = collect_target_list(paths, input_file)
+        if algo not in {"sha256", "sha1", "md5"}:
+            raise UsageError(
+                f"unsupported algorithm: {algo}",
+                hint="choose one of: md5, sha1, sha256",
+            )
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    timings: dict[str, float] = {}
+
+    def _timed_hash(p: str) -> ChecksumResult:
+        start = time.perf_counter()
+        try:
+            return api.hash_files(p, algo=algo)
+        finally:
+            timings[p] = (time.perf_counter() - start) * 1000.0
+
+    outcomes = collect_outcomes(targets, _timed_hash)
+
+    if as_json or jsonl:
+        envelopes = [
+            _hash_envelope(t, r, e, timings.get(t, 0.0), algo=algo)
+            for t, r, e in outcomes
+        ]
+        emit_envelopes(envelopes, jsonl=jsonl)
+    else:
+        console = make_console(no_color=no_color)
+        for _, result, error in outcomes:
+            if error is not None:
+                message = f"error: {error.message}"
+                if error.hint:
+                    message += f"\nhint: {error.hint}"
+                typer.echo(message, err=True)
+            elif result is not None:
+                render_checksum(result, console=console)
+
+    codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
+    raise typer.Exit(int(aggregate_exit(codes)))

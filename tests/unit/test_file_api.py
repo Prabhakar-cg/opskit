@@ -188,22 +188,29 @@ def test_convert_round_trip_json_toml_json(tmp_path: Path):
     assert json.loads(json_out.read_text(encoding="utf-8")) == data
 
 
+# Exclude surrogates/control/line-separator categories: YAML 1.1 treats U+0085/U+2028/
+# U+2029 as line-break characters, so PyYAML's emitter/scanner round-trip normalizes them
+# — a documented YAML-spec quirk (see test_file_formats.py's identical exclusion), not a
+# bug in convert()'s JSON<->YAML round-trip.
+_yaml_safe_alphabet = st.characters(
+    blacklist_categories=("Cs", "Cc", "Zl", "Zp"), max_codepoint=0x2FFF
+)
+_yaml_safe_text = st.text(alphabet=_yaml_safe_alphabet, max_size=15)
+_yaml_safe_key = st.text(alphabet=_yaml_safe_alphabet, min_size=1, max_size=8)
 _json_safe_scalar = st.one_of(
     st.booleans(),
     st.integers(min_value=-(2**53), max_value=2**53),
-    st.text(max_size=15),
+    _yaml_safe_text,
 )
 _json_safe_value = st.recursive(
     _json_safe_scalar,
     lambda children: st.one_of(
         st.lists(children, max_size=3),
-        st.dictionaries(st.text(min_size=1, max_size=8), children, max_size=3),
+        st.dictionaries(_yaml_safe_key, children, max_size=3),
     ),
     max_leaves=10,
 )
-_json_safe_dict = st.dictionaries(
-    st.text(min_size=1, max_size=8), _json_safe_value, max_size=4
-)
+_json_safe_dict = st.dictionaries(_yaml_safe_key, _json_safe_value, max_size=4)
 
 
 @given(data=_json_safe_dict)
@@ -292,3 +299,63 @@ def test_pretty_in_place_rewrites_source(tmp_path: Path):
     api.pretty(path, in_place=True, indent=4)
 
     assert path.read_text(encoding="utf-8") == json.dumps({"a": 1, "b": 2}, indent=4)
+
+
+# ---------------------------------------------------------------------------
+# identify()
+# ---------------------------------------------------------------------------
+
+
+def test_identify_matching_extension(tmp_path: Path):
+    path = tmp_path / "config.json"
+    path.write_text('{"a": 1}', encoding="utf-8")
+    result = api.identify(path)
+    assert result.detected_type == "json"
+    assert result.extension == "json"
+    assert result.extension_matches is True
+
+
+def test_identify_mismatched_extension(tmp_path: Path):
+    path = tmp_path / "config.txt"
+    path.write_text('{"a": 1}', encoding="utf-8")
+    result = api.identify(path)
+    assert result.detected_type == "json"
+    assert result.extension == "txt"
+    assert result.extension_matches is False
+
+
+def test_identify_no_extension(tmp_path: Path):
+    path = tmp_path / "noext"
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+    result = api.identify(path)
+    assert result.detected_type == "png"
+    assert result.extension == ""
+    assert result.extension_matches is False
+
+
+# ---------------------------------------------------------------------------
+# hash_files()
+# ---------------------------------------------------------------------------
+
+
+def test_hash_files_default_algo_sha256(tmp_path: Path):
+    path = tmp_path / "data.bin"
+    path.write_bytes(b"hello")
+    result = api.hash_files(path)
+    assert result.algorithm == "sha256"
+    assert len(result.digest) == 64
+
+
+def test_hash_files_explicit_algo(tmp_path: Path):
+    path = tmp_path / "data.bin"
+    path.write_bytes(b"hello")
+    result = api.hash_files(path, algo="md5")
+    assert result.algorithm == "md5"
+    assert len(result.digest) == 32
+
+
+def test_hash_files_unsupported_algo_is_usage_error(tmp_path: Path):
+    path = tmp_path / "data.bin"
+    path.write_bytes(b"hello")
+    with pytest.raises(UsageError):
+        api.hash_files(path, algo="sha512")

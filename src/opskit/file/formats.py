@@ -17,7 +17,7 @@ import json
 import sys
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import NamedTuple, cast
+from typing import BinaryIO, NamedTuple, cast
 from xml.etree.ElementTree import ParseError as XmlParseError
 from xml.etree.ElementTree import indent as xml_indent
 from xml.etree.ElementTree import tostring as xml_tostring
@@ -111,6 +111,28 @@ def read_bytes(path: Path) -> bytes:
     """
     try:
         return path.read_bytes()
+    except FileNotFoundError as exc:
+        raise FileNotFoundOnDisk(
+            f"file not found: {path}", hint="check the path and try again"
+        ) from exc
+    except IsADirectoryError as exc:
+        raise FileNotFoundOnDisk(
+            f"not a file: {path}", hint="pass a file path, not a directory"
+        ) from exc
+    except PermissionError as exc:
+        raise FilePermissionDenied(f"permission denied reading {path}") from exc
+    except OSError as exc:
+        raise FileError(f"cannot read {path}: {exc}") from exc
+
+
+def open_binary(path: Path) -> BinaryIO:
+    """Open ``path`` for streaming binary reads, normalizing OS errors into the typed hierarchy.
+
+    Shared by every command that scans a file in chunks rather than loading it whole
+    (:func:`read_bytes` covers the whole-file case).
+    """
+    try:
+        return path.open("rb")
     except FileNotFoundError as exc:
         raise FileNotFoundOnDisk(
             f"file not found: {path}", hint="check the path and try again"

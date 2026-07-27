@@ -15,10 +15,12 @@ from pathlib import Path
 from typing import NamedTuple
 
 from opskit.core.errors import UsageError
-from opskit.file import atomic, formats, textstats
+from opskit.file import atomic, formats, hashing, sniff, textstats
 from opskit.file.errors import InvalidContent
 from opskit.file.models import (
+    ChecksumResult,
     ConversionResult,
+    IdentificationResult,
     LineEnding,
     LineEndingReport,
     StructuredFormat,
@@ -255,3 +257,33 @@ def pretty(
         lossless=loaded.lossless and dumped.lossless,
         lossy_reason=_lossy_reason(loaded.lossy_reason, dumped.lossy_reason),
     )
+
+
+def identify(path: str | Path) -> IdentificationResult:
+    """Content-sniffed type vs. extension for ``path`` (FR-004).
+
+    Raises:
+        FileNotFoundOnDisk / FilePermissionDenied: ``path`` could not be read.
+    """
+    resolved = Path(path)
+    detected = sniff.identify_type(resolved)
+    extension = resolved.suffix.lower().lstrip(".")
+    candidates = detected.split("/")
+    matches = extension in candidates
+    return IdentificationResult(
+        path=str(resolved),
+        detected_type=detected,
+        extension=extension,
+        extension_matches=matches,
+    )
+
+
+def hash_files(path: str | Path, *, algo: str = "sha256") -> ChecksumResult:
+    """Checksum of ``path`` using ``algo`` (FR-005).
+
+    Raises:
+        UsageError: ``algo`` is not one of the supported algorithm names.
+        FileNotFoundOnDisk / FilePermissionDenied: ``path`` could not be read.
+    """
+    digest = hashing.compute_hash(path, algo)
+    return ChecksumResult(path=str(path), algorithm=algo, digest=digest)

@@ -136,16 +136,16 @@ with `extension_matches: false`; a computed checksum matches an independently co
 
 ### Implementation for User Story 4
 
-- [ ] T035 [P] [US4] Implement `src/opskit/file/sniff.py`: an ordered signature table — binary magic-byte prefixes (PNG/GIF/PDF/ZIP-family/gzip/ELF and similar) checked first, then structural sniffing for JSON/XML/YAML/TOML via `formats.py` (T007), falling back to `"undetermined"` for files too short/ambiguous to classify (research R5)
-- [ ] T036 [US4] Implement `identify()` in `src/opskit/file/api.py` using T035, batch-safe (depends on T005, T007, T035)
-- [ ] T037 [P] [US4] Implement streaming checksum computation in `src/opskit/file/hashing.py`: chunked reads for `sha256`/`sha1`/`md5` so memory stays bounded regardless of file size
-- [ ] T038 [US4] Implement `hash_files()` in `src/opskit/file/api.py` using T037, batch-safe (depends on T005, T037)
-- [ ] T039 [P] [US4] Category rendering for `identify`/`hash` in `src/opskit/file/output.py`, visually flagging extension/content mismatches
-- [ ] T040 [US4] Thin Typer command `identify` in `src/opskit/file/cli.py`
-- [ ] T041 [US4] Thin Typer command `hash` in `src/opskit/file/cli.py`: `--algo` (default `sha256`)
-- [ ] T042 [P] [US4] Unit tests in `tests/unit/test_file_sniff.py`: signature table hits, extension/content mismatch, an undetermined short file
-- [ ] T043 [P] [US4] Unit tests in `tests/unit/test_file_hashing.py`: checksum correctness per algorithm, streaming on a large fixture
-- [ ] T044 [P] [US4] CLI unit tests in `tests/unit/test_file_cli.py`: `identify`/`hash` envelopes and batch mixed-outcome handling
+- [X] T035 [P] [US4] Implement `src/opskit/file/sniff.py`: an ordered signature table — binary magic-byte prefixes (PNG/GIF/PDF/ZIP-family/gzip/ELF and similar) checked first, then structural sniffing for JSON/XML/YAML/TOML via `formats.py` (T007), falling back to `"undetermined"` for files too short/ambiguous to classify (research R5)
+- [X] T036 [US4] Implement `identify()` in `src/opskit/file/api.py` using T035, batch-safe (depends on T005, T007, T035)
+- [X] T037 [P] [US4] Implement streaming checksum computation in `src/opskit/file/hashing.py`: chunked reads for `sha256`/`sha1`/`md5` so memory stays bounded regardless of file size
+- [X] T038 [US4] Implement `hash_files()` in `src/opskit/file/api.py` using T037, batch-safe (depends on T005, T037)
+- [X] T039 [P] [US4] Category rendering for `identify`/`hash` in `src/opskit/file/output.py`, visually flagging extension/content mismatches
+- [X] T040 [US4] Thin Typer command `identify` in `src/opskit/file/cli.py`
+- [X] T041 [US4] Thin Typer command `hash` in `src/opskit/file/cli.py`: `--algo` (default `sha256`)
+- [X] T042 [P] [US4] Unit tests in `tests/unit/test_file_sniff.py`: signature table hits, extension/content mismatch, an undetermined short file
+- [X] T043 [P] [US4] Unit tests in `tests/unit/test_file_hashing.py`: checksum correctness per algorithm, streaming on a large fixture
+- [X] T044 [P] [US4] CLI unit tests in `tests/unit/test_file_cli.py`: `identify`/`hash` envelopes and batch mixed-outcome handling
 
 **Checkpoint**: `identify` + `hash` fully usable
 

@@ -10,7 +10,13 @@ from __future__ import annotations
 from rich.console import Console
 from rich.markup import escape
 
-from opskit.file.models import ConversionResult, LineEndingReport, ValidationResult
+from opskit.file.models import (
+    ChecksumResult,
+    ConversionResult,
+    IdentificationResult,
+    LineEndingReport,
+    ValidationResult,
+)
 
 
 def render_validation(result: ValidationResult, *, console: Console) -> None:
@@ -52,3 +58,23 @@ def render_conversion(result: ConversionResult, *, console: Console) -> None:
         )
         note += f"  [yellow]lossy: {reason}[/yellow]"
     console.print(f"[green]ok[/green]  {path} -> {destination}{note}")
+
+
+def render_identify(result: IdentificationResult, *, console: Console) -> None:
+    """Print one file's sniffed type, flagging an extension mismatch."""
+    path = escape(result.path)
+    detected = escape(result.detected_type)
+    extension = escape(result.extension) or "(none)"
+    if result.extension_matches:
+        console.print(f"[green]{detected}[/green]  {path}  (.{extension})")
+    else:
+        console.print(
+            f"[yellow]{detected}[/yellow]  {path}  "
+            f"(.{extension} — [yellow]extension mismatch[/yellow])"
+        )
+
+
+def render_checksum(result: ChecksumResult, *, console: Console) -> None:
+    """Print one file's checksum."""
+    path = escape(result.path)
+    console.print(f"{result.algorithm}:{result.digest}  {path}")

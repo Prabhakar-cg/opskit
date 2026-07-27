@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import BinaryIO
 
-from opskit.file.errors import FileError, FileNotFoundOnDisk, FilePermissionDenied
+from opskit.file import formats
 from opskit.file.models import LineEnding, LineEndingReport
 
 _LINE_ENDING_RE = re.compile(rb"\r\n|\r|\n")
@@ -27,24 +26,6 @@ class _Counts:
         r"""Start every counter at zero with no carried-over trailing ``\r``."""
         self.crlf = self.lf = self.cr = 0
         self.pending_cr = False
-
-
-def _open_binary(path: Path) -> BinaryIO:
-    """Open ``path`` for binary reads, normalizing OS errors into the typed hierarchy."""
-    try:
-        return path.open("rb")
-    except FileNotFoundError as exc:
-        raise FileNotFoundOnDisk(
-            f"file not found: {path}", hint="check the path and try again"
-        ) from exc
-    except IsADirectoryError as exc:
-        raise FileNotFoundOnDisk(
-            f"not a file: {path}", hint="pass a file path, not a directory"
-        ) from exc
-    except PermissionError as exc:
-        raise FilePermissionDenied(f"permission denied reading {path}") from exc
-    except OSError as exc:
-        raise FileError(f"cannot read {path}: {exc}") from exc
 
 
 def _count_chunk(chunk: bytes, counts: _Counts) -> None:
@@ -82,7 +63,7 @@ def detect_line_endings(path: str | Path) -> LineEndingReport:
     """
     resolved = Path(path)
     counts = _Counts()
-    with _open_binary(resolved) as handle:
+    with formats.open_binary(resolved) as handle:
         while True:
             chunk = handle.read(_CHUNK_SIZE)
             if not chunk:

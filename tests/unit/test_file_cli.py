@@ -15,7 +15,13 @@ from opskit.file.errors import (
     FilePermissionDenied,
     InvalidContent,
 )
-from opskit.file.models import ConversionResult, StructuredFormat, ValidationResult
+from opskit.file.models import (
+    ChecksumResult,
+    ConversionResult,
+    IdentificationResult,
+    StructuredFormat,
+    ValidationResult,
+)
 
 runner = CliRunner()
 
@@ -478,3 +484,119 @@ def test_pretty_stdout_content(monkeypatch):
     result = runner.invoke(app, ["file", "pretty", "data.json"])
     assert result.exit_code == 0
     assert result.stdout_bytes == b"name: svc\n"
+
+
+def _identify(
+    path="/data/config.json", *, detected="json", extension="json", matches=True
+):
+    return IdentificationResult(
+        path=path,
+        detected_type=detected,
+        extension=extension,
+        extension_matches=matches,
+    )
+
+
+def test_identify_json_envelope(monkeypatch):
+    monkeypatch.setattr("opskit.file.cli.api.identify", _identify)
+    result = runner.invoke(app, ["file", "identify", "config.json", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.identify"
+    assert payload["result"]["detected_type"] == "json"
+
+
+def test_identify_mismatch_still_exit_zero(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.identify",
+        lambda p: _identify(p, extension="txt", matches=False),
+    )
+    result = runner.invoke(app, ["file", "identify", "renamed.txt", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["result"]["extension_matches"] is False
+
+
+def test_identify_human_output_smoke(monkeypatch):
+    monkeypatch.setattr("opskit.file.cli.api.identify", _identify)
+    result = runner.invoke(app, ["file", "identify", "config.json", "--no-color"])
+    assert result.exit_code == 0
+    assert "config.json" in result.stdout
+    assert "json" in result.stdout
+
+
+def test_identify_not_found_exit_code(monkeypatch):
+    def fake(p):
+        raise FileNotFoundOnDisk(f"file not found: {p}")
+
+    monkeypatch.setattr("opskit.file.cli.api.identify", fake)
+    result = runner.invoke(app, ["file", "identify", "missing.txt", "--json"])
+    assert result.exit_code == 16
+
+
+def test_identify_batch_mixed_outcomes(monkeypatch):
+    def fake(p):
+        if p == "missing.txt":
+            raise FileNotFoundOnDisk(f"file not found: {p}")
+        return _identify(p)
+
+    monkeypatch.setattr("opskit.file.cli.api.identify", fake)
+    result = runner.invoke(
+        app, ["file", "identify", "good.json", "missing.txt", "--jsonl"]
+    )
+    lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    assert lines[0]["result"] is not None
+    assert lines[1]["result"] is None
+    assert result.exit_code == 7
+
+
+def test_hash_json_envelope(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.hash_files",
+        lambda p, algo: ChecksumResult(path=p, algorithm=algo, digest="deadbeef"),
+    )
+    result = runner.invoke(app, ["file", "hash", "artifact.tar.gz", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.hash"
+    assert payload["query"]["algo"] == "sha256"
+    assert payload["result"]["digest"] == "deadbeef"
+
+
+def test_hash_explicit_algo_passed_through(monkeypatch):
+    captured = {}
+
+    def fake(p, algo):
+        captured["algo"] = algo
+        return ChecksumResult(path=p, algorithm=algo, digest="ab")
+
+    monkeypatch.setattr("opskit.file.cli.api.hash_files", fake)
+    result = runner.invoke(
+        app, ["file", "hash", "artifact.tar.gz", "--algo", "md5", "--json"]
+    )
+    assert result.exit_code == 0
+    assert captured["algo"] == "md5"
+
+
+def test_hash_unsupported_algo_is_usage_error():
+    result = runner.invoke(app, ["file", "hash", "artifact.tar.gz", "--algo", "sha512"])
+    assert result.exit_code == 2
+
+
+def test_hash_human_output_smoke(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.hash_files",
+        lambda p, algo: ChecksumResult(path=p, algorithm=algo, digest="deadbeef"),
+    )
+    result = runner.invoke(app, ["file", "hash", "artifact.tar.gz", "--no-color"])
+    assert result.exit_code == 0
+    assert "deadbeef" in result.stdout
+
+
+def test_hash_not_found_exit_code(monkeypatch):
+    def fake(p, algo):
+        raise FileNotFoundOnDisk(f"file not found: {p}")
+
+    monkeypatch.setattr("opskit.file.cli.api.hash_files", fake)
+    result = runner.invoke(app, ["file", "hash", "missing.tar.gz", "--json"])
+    assert result.exit_code == 16
