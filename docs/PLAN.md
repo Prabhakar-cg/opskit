@@ -330,15 +330,21 @@ Each is phrased as an **automated gate**, not an aspiration.
   default, `--json` (versioned envelope), `--jsonl` where batchable, honor `NO_COLOR` +
   auto-plain-when-piped, and structured exit codes. *Gate:* a test walks all registered commands
   and asserts these flags/behaviors exist and conform.
-- **Art. X — Diagnostic-only scope (no misuse; not a hacking tool).** opskit is a **read-only
-  diagnostic/troubleshooting** tool for operators working on **their own, authorized**
-  environments. It will **not** ship offensive or abuse features — no exploitation, no
-  credential brute-forcing/guessing, no mass/range port scanning, no traffic
+- **Art. X — Diagnostic-only scope & guarded file utilities (no misuse; not a hacking tool).**
+  opskit is a **read-only diagnostic/troubleshooting** tool for operators working on **their
+  own, authorized** environments, plus a narrow, guarded exception for local file-utility
+  commands (line-ending/encoding normalization, JSON/YAML/XML/TOML conversion and
+  pretty-printing) that write output. It will **not** ship offensive or abuse features — no
+  exploitation, no credential brute-forcing/guessing, no mass/range port scanning, no traffic
   interception/spoofing, no detection-evasion. Legitimate operator diagnostics (explicit TCP
   connect checks, a temporary listener for one's own troubleshooting, read-only AD queries with
   the operator's own credentials) are in scope; anything enabling attack or misuse is out.
-  *Gate:* every feature spec is checked against this boundary in the Constitution Check; misuse-
-  enabling capabilities are rejected. Credentials are always redacted (see Art. III).
+  File-utility commands must additionally be named-target only (no network calls, no unbounded
+  tree mutation), non-destructive by default (stdout/new file unless `--in-place`), atomic and
+  non-clobbering on `--in-place` (`--backup`/`--force`-equivalent required to overwrite), and
+  never execute file contents. *Gate:* every feature spec is checked against this boundary in
+  the Constitution Check; misuse-enabling capabilities are rejected. Credentials are always
+  redacted (see Art. III).
 
 ---
 
@@ -394,6 +400,7 @@ _Append-only. Date + one line per decision, so both sides know why things are th
 - 2026-07-01 — CI mechanics settled: reduced matrix on PR / full matrix on main + nightly (+ nightly real-network smoke); release-please for versioning/changelog/release; full supply-chain hardening (SHA-pinned actions, harden-runner egress control, OpenSSF Scorecard); squash-merge with Conventional-Commit PR titles; coverage gate --cov-fail-under=90.
 - 2026-07-01 — Delivery model = Continuous Delivery (CI/CD). GitHub App token so full CI + security suite run on the release PR (last-minute/zero-day catch). Publish gated behind protected `pypi` Environment with required reviewers (manual approval) + a final pre-publish pip-audit/dependency re-scan + nightly CVE scan on main. Publish via Trusted Publishing on approval. Accepted caveat: tag/Release exists at release-PR merge even if publish is later rejected (fix forward).
 - 2026-07-01 — Moved to Spec Kit. Installed uv + specify-cli in WSL; ran `specify init --here --integration claude --script sh`. Created branch `chore/spec-kit-init`; committed design plan + spec-kit scaffolding. Updated git remote devkit→opskit (GitHub repo renamed by user). Ratified constitution v1.0.0 from Arts. I–X at `.specify/memory/constitution.md`. Gitignored `.claude/*.local.json`.
+- 2026-07-26 — Constitution amended to v1.3.0: Art. X expanded from strictly read-only to admit a narrow, guarded exception for local file-utility commands, ahead of feature 007 "file operations" (line-ending/encoding normalization; JSON/YAML/XML/TOML conversion and pretty-printing). Existing categories (dns/tls/net/ad/storage) stay strictly read-only — unaffected. New write-path guarantees: named-target only (no network calls, no unbounded tree mutation), non-destructive by default (stdout/new file unless `--in-place`), atomic non-clobbering in-place writes (`--backup`/`--force`-equivalent to overwrite), no content execution.
 
 ## Backlog
 

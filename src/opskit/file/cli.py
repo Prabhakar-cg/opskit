@@ -1,0 +1,498 @@
+"""Thin Typer sub-app for file operations: parse args, delegate to the API, render.
+
+Holds no business logic — it maps options onto :mod:`opskit.file.api` and turns typed
+results/exceptions into human or JSON output and structured exit codes.
+
+.. note::
+   This module intentionally does **not** use ``from __future__ import annotations``. Typer reads
+   the ``Annotated[...]`` metadata off the concrete annotation objects; deferring them to strings
+   (PEP 563) makes Typer silently drop the ``Argument``/``Option`` metadata on Python 3.9, turning
+   positional arguments into ``--options``. Keep annotations eager here.
+"""
+
+import sys
+import time
+from pathlib import Path
+from typing import Annotated, Any, Optional
+
+import typer
+
+from opskit.core.cliutils import (
+    aggregate_exit,
+    collect_outcomes,
+    collect_target_list,
+    emit_envelopes,
+)
+from opskit.core.errors import OpskitError, UsageError
+from opskit.core.exit_codes import ExitCode, exit_code_for
+from opskit.core.output import make_console
+from opskit.core.result import build_envelope
+from opskit.file import api
+from opskit.file.models import (
+    ConversionResult,
+    LineEnding,
+    LineEndingReport,
+    StructuredFormat,
+    ValidationResult,
+)
+from opskit.file.output import render_conversion, render_lineendings, render_validation
+
+app = typer.Typer(
+    name="file",
+    help="File operations: read-only diagnostics + guarded, opt-in conversions.",
+    no_args_is_help=True,
+)
+
+
+def _error_exit(error: OpskitError) -> typer.Exit:
+    """Report a failure to stderr and build its typed exit signal."""
+    message = f"error: {error.message}"
+    if error.hint:
+        message += f"\nhint: {error.hint}"
+    typer.echo(message, err=True)
+    return typer.Exit(int(exit_code_for(error)))
+
+
+_VALIDATE_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file validate config.json
+  opskit file validate config.json config.yaml settings.toml
+  opskit file validate config.txt --format json
+  opskit file validate -i paths.txt --jsonl
+"""
+
+
+def _validate_envelope(
+    path: str,
+    result: Optional[ValidationResult],
+    error: Optional[OpskitError],
+    elapsed_ms: float,
+    *,
+    format: Optional[StructuredFormat],
+) -> dict[str, Any]:
+    query: dict[str, Any] = {"path": path, "format": format.value if format else None}
+    if result is not None:
+        return build_envelope(
+            command="file.validate",
+            query=query,
+            result=result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+    return build_envelope(
+        command="file.validate",
+        query=query,
+        result=None,
+        error=error,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def _validate_exit_code(
+    result: Optional[ValidationResult], error: Optional[OpskitError]
+) -> ExitCode:
+    """A target's outcome class: raised error > returned-but-invalid > OK.
+
+    ``valid=False`` is a *returned* result, not a raised error, so it needs its own mapping
+    to ``INVALID_CONTENT`` here — mirroring how storage's ``size`` maps a returned
+    ``incomplete=True`` result to ``PARTIAL`` (research R9).
+    """
+    if error is not None:
+        return exit_code_for(error)
+    if result is not None and not result.valid:
+        return ExitCode.INVALID_CONTENT
+    return ExitCode.OK
+
+
+@app.command(name="validate", epilog=_VALIDATE_EPILOG)
+def validate_cmd(
+    paths: Annotated[
+        Optional[list[str]],
+        typer.Argument(help="File path(s) to validate (or use --input-file)."),
+    ] = None,
+    format: Annotated[
+        Optional[StructuredFormat],
+        typer.Option(
+            "--format",
+            help="Force this format instead of auto-detecting.",
+            rich_help_panel="Query controls",
+        ),
+    ] = None,
+    input_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--input-file",
+            "-i",
+            help="File of paths, one per line (# comments allowed); '-' reads stdin.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    jsonl: Annotated[
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Validate JSON/YAML/TOML/XML syntax, reporting the line/column of any error."""
+    try:
+        targets = collect_target_list(paths, input_file)
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    timings: dict[str, float] = {}
+
+    def _timed_validate(p: str) -> ValidationResult:
+        start = time.perf_counter()
+        try:
+            return api.validate(p, format=format)
+        finally:
+            timings[p] = (time.perf_counter() - start) * 1000.0
+
+    outcomes = collect_outcomes(targets, _timed_validate)
+
+    if as_json or jsonl:
+        envelopes = [
+            _validate_envelope(t, r, e, timings.get(t, 0.0), format=format)
+            for t, r, e in outcomes
+        ]
+        emit_envelopes(envelopes, jsonl=jsonl)
+    else:
+        console = make_console(no_color=no_color)
+        for _, result, error in outcomes:
+            if error is not None:
+                message = f"error: {error.message}"
+                if error.hint:
+                    message += f"\nhint: {error.hint}"
+                typer.echo(message, err=True)
+            elif result is not None:
+                render_validation(result, console=console)
+
+    codes = [_validate_exit_code(r, e) for _, r, e in outcomes]
+    raise typer.Exit(int(aggregate_exit(codes)))
+
+
+_LINEENDINGS_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file lineendings script.sh
+  opskit file lineendings *.sh --json
+  opskit file lineendings -i paths.txt --jsonl
+"""
+
+
+def _lineendings_envelope(
+    path: str,
+    result: Optional[LineEndingReport],
+    error: Optional[OpskitError],
+    elapsed_ms: float,
+) -> dict[str, Any]:
+    query: dict[str, Any] = {"path": path}
+    if result is not None:
+        return build_envelope(
+            command="file.lineendings",
+            query=query,
+            result=result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+    return build_envelope(
+        command="file.lineendings",
+        query=query,
+        result=None,
+        error=error,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+@app.command(name="lineendings", epilog=_LINEENDINGS_EPILOG)
+def lineendings_cmd(
+    paths: Annotated[
+        Optional[list[str]],
+        typer.Argument(help="File path(s) to inspect (or use --input-file)."),
+    ] = None,
+    input_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--input-file",
+            "-i",
+            help="File of paths, one per line (# comments allowed); '-' reads stdin.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    jsonl: Annotated[
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Report CRLF/LF/lone-CR counts and mixed-style detection per file."""
+    try:
+        targets = collect_target_list(paths, input_file)
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    timings: dict[str, float] = {}
+
+    def _timed_lineendings(p: str) -> LineEndingReport:
+        start = time.perf_counter()
+        try:
+            return api.lineendings(p)
+        finally:
+            timings[p] = (time.perf_counter() - start) * 1000.0
+
+    outcomes = collect_outcomes(targets, _timed_lineendings)
+
+    if as_json or jsonl:
+        envelopes = [
+            _lineendings_envelope(t, r, e, timings.get(t, 0.0)) for t, r, e in outcomes
+        ]
+        emit_envelopes(envelopes, jsonl=jsonl)
+    else:
+        console = make_console(no_color=no_color)
+        for _, result, error in outcomes:
+            if error is not None:
+                message = f"error: {error.message}"
+                if error.hint:
+                    message += f"\nhint: {error.hint}"
+                typer.echo(message, err=True)
+            elif result is not None:
+                render_lineendings(result, console=console)
+
+    codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
+    raise typer.Exit(int(aggregate_exit(codes)))
+
+
+_EOL_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file eol script.sh --to lf > fixed.sh
+  opskit file eol script.sh --to lf --in-place --backup
+  opskit file eol *.sh --to lf --in-place --jsonl
+"""
+
+
+def _eol_envelope(
+    path: str,
+    result: Optional[ConversionResult],
+    error: Optional[OpskitError],
+    elapsed_ms: float,
+    *,
+    to: LineEnding,
+    in_place: bool,
+    backup: bool,
+) -> dict[str, Any]:
+    query: dict[str, Any] = {
+        "path": path,
+        "to": to.value,
+        "in_place": in_place,
+        "backup": backup,
+    }
+    if result is not None:
+        return build_envelope(
+            command="file.eol",
+            query=query,
+            result=result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+    return build_envelope(
+        command="file.eol",
+        query=query,
+        result=None,
+        error=error,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def _check_eol_flags(
+    *,
+    to: Optional[LineEnding],
+    output: Optional[Path],
+    in_place: bool,
+    backup: bool,
+    target_count: int,
+) -> LineEnding:
+    """Validate `eol`'s flag combination before any file I/O; return the narrowed `--to`."""
+    if to is None:
+        raise UsageError("--to is required")
+    if output is not None and in_place:
+        raise UsageError("--output and --in-place are mutually exclusive")
+    if backup and not in_place:
+        raise UsageError("--backup requires --in-place")
+    if output is not None and target_count > 1:
+        raise UsageError("--output is only valid with a single file target")
+    return to
+
+
+def _render_eol_outcomes(
+    outcomes: list[tuple[str, Optional[api.WriteOutcome], Optional[OpskitError]]],
+    *,
+    no_color: bool,
+) -> None:
+    console = make_console(no_color=no_color)
+    for _, outcome, error in outcomes:
+        if error is not None:
+            message = f"error: {error.message}"
+            if error.hint:
+                message += f"\nhint: {error.hint}"
+            typer.echo(message, err=True)
+        elif outcome is not None and outcome.stdout_content is not None:
+            sys.stdout.buffer.write(outcome.stdout_content)
+        elif outcome is not None:
+            render_conversion(outcome.result, console=console)
+
+
+@app.command(name="eol", epilog=_EOL_EPILOG)
+def eol_cmd(
+    paths: Annotated[
+        Optional[list[str]],
+        typer.Argument(help="File path(s) to normalize (or use --input-file)."),
+    ] = None,
+    to: Annotated[
+        Optional[LineEnding],
+        typer.Option("--to", help="Target line-ending style.", rich_help_panel="Query"),
+    ] = None,
+    input_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--input-file",
+            "-i",
+            help="File of paths, one per line (# comments allowed); '-' reads stdin.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--output",
+            help="Write result to this new file instead of stdout. Only valid with a "
+            "single file target.",
+            rich_help_panel="Write",
+        ),
+    ] = None,
+    in_place: Annotated[
+        bool,
+        typer.Option(
+            "--in-place",
+            help="Overwrite the source file atomically.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    backup: Annotated[
+        bool,
+        typer.Option(
+            "--backup",
+            help="With --in-place: write <path>.bak before replacing.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="With --in-place --backup: overwrite an existing .bak.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    jsonl: Annotated[
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Normalize line endings, non-destructively by default (--in-place to rewrite)."""
+    try:
+        targets = collect_target_list(paths, input_file)
+        checked_to = _check_eol_flags(
+            to=to,
+            output=output,
+            in_place=in_place,
+            backup=backup,
+            target_count=len(targets),
+        )
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    timings: dict[str, float] = {}
+
+    def _timed_eol(p: str) -> api.WriteOutcome:
+        start = time.perf_counter()
+        try:
+            return api.eol(
+                p,
+                to=checked_to,
+                output=output,
+                in_place=in_place,
+                backup=backup,
+                force=force,
+            )
+        finally:
+            timings[p] = (time.perf_counter() - start) * 1000.0
+
+    outcomes = collect_outcomes(targets, _timed_eol)
+
+    if as_json or jsonl:
+        envelopes = [
+            _eol_envelope(
+                t,
+                o.result if o is not None else None,
+                e,
+                timings.get(t, 0.0),
+                to=checked_to,
+                in_place=in_place,
+                backup=backup,
+            )
+            for t, o, e in outcomes
+        ]
+        emit_envelopes(envelopes, jsonl=jsonl)
+    else:
+        _render_eol_outcomes(outcomes, no_color=no_color)
+
+    codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
+    raise typer.Exit(int(aggregate_exit(codes)))

@@ -37,6 +37,8 @@ class ExitCode(IntEnum):
     TUNNEL_DENIED = 18
     PROXY_GATEWAY = 19
     NOT_A_PROXY = 20
+    INVALID_CONTENT = 21
+    CLOBBER_REFUSED = 22
 
 
 def exit_code_for(error: OpskitError) -> ExitCode:

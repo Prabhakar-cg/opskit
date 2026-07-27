@@ -1,8 +1,9 @@
 # opskit — Claude Code guide
 
 opskit is a cross-platform, pip-installable Python **CLI + library** giving engineers one
-consistent set of read-only troubleshooting/diagnostic commands regardless of OS. v1 ships DNS;
-network/TLS/AD follow.
+consistent set of read-only troubleshooting/diagnostic commands regardless of OS, plus a narrow,
+guarded set of opt-in local file-utility commands (Art. X). v1 ships DNS; network/TLS/AD/storage
+follow; file operations is next.
 
 **Sources of truth (read these; don't duplicate them):**
 - Principles & gates → [`.specify/memory/constitution.md`](.specify/memory/constitution.md) (Arts. I–X)
@@ -22,6 +23,9 @@ Everything below is a summary of those; if they conflict, **the constitution win
    `py.typed`. Only the CLI catches exceptions and maps them to exit codes.
 4. **Read-only, zero-telemetry, no misuse.** Only perform the diagnostic query the user asked for.
    No network calls except to the chosen/system resolver. No offensive/abuse features (Art. X).
+   The sole exception is guarded file-utility commands (e.g. `opskit file convert`): named-target
+   only, non-destructive by default (stdout/new file), atomic non-clobbering `--in-place` opt-in
+   only, never executes file contents (Art. X).
 5. **Every command honors the output contract.** Human-readable default + `--json` (versioned
    envelope) + `--jsonl` where batchable; honor `NO_COLOR` and auto-plain-when-piped; structured
    exit codes. Errors are actionable (say what to try next).
