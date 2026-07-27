@@ -335,6 +335,39 @@ def _eol_envelope(
     )
 
 
+def _check_write_flags(*, output: Optional[Path], in_place: bool, backup: bool) -> None:
+    """Validate the write-destination flags shared by every guarded write command."""
+    if output is not None and in_place:
+        raise UsageError("--output and --in-place are mutually exclusive")
+    if backup and not in_place:
+        raise UsageError("--backup requires --in-place")
+
+
+def _report_write_failure(
+    error: OpskitError,
+    *,
+    command: str,
+    query: dict[str, Any],
+    elapsed_ms: float,
+    as_json: bool,
+) -> None:
+    """Report a single-target write command's failure: an envelope in JSON mode, else stderr."""
+    if as_json:
+        envelope = build_envelope(
+            command=command,
+            query=query,
+            result=None,
+            error=error,
+            elapsed_ms=elapsed_ms,
+        )
+        emit_envelopes([envelope], jsonl=False)
+        return
+    message = f"error: {error.message}"
+    if error.hint:
+        message += f"\nhint: {error.hint}"
+    typer.echo(message, err=True)
+
+
 def _check_eol_flags(
     *,
     to: Optional[LineEnding],
@@ -346,10 +379,7 @@ def _check_eol_flags(
     """Validate `eol`'s flag combination before any file I/O; return the narrowed `--to`."""
     if to is None:
         raise UsageError("--to is required")
-    if output is not None and in_place:
-        raise UsageError("--output and --in-place are mutually exclusive")
-    if backup and not in_place:
-        raise UsageError("--backup requires --in-place")
+    _check_write_flags(output=output, in_place=in_place, backup=backup)
     if output is not None and target_count > 1:
         raise UsageError("--output is only valid with a single file target")
     return to
@@ -496,3 +526,254 @@ def eol_cmd(
 
     codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
     raise typer.Exit(int(aggregate_exit(codes)))
+
+
+_CONVERT_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file convert config.json --to yaml > config.yaml
+  opskit file convert config.json --to yaml --output config.yaml
+  opskit file convert config.json --to yaml --in-place --backup
+"""
+
+
+@app.command(name="convert", epilog=_CONVERT_EPILOG)
+def convert_cmd(
+    path: Annotated[str, typer.Argument(help="File to convert.")],
+    to: Annotated[
+        Optional[StructuredFormat],
+        typer.Option(
+            "--to", help="Target structured-data format.", rich_help_panel="Query"
+        ),
+    ] = None,
+    format: Annotated[
+        Optional[StructuredFormat],
+        typer.Option(
+            "--format",
+            help="Force this source format instead of auto-detecting.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--output",
+            help="Write result to this new file instead of stdout.",
+            rich_help_panel="Write",
+        ),
+    ] = None,
+    in_place: Annotated[
+        bool,
+        typer.Option(
+            "--in-place",
+            help="Overwrite the source file atomically.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    backup: Annotated[
+        bool,
+        typer.Option(
+            "--backup",
+            help="With --in-place: write <path>.bak before replacing.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="With --in-place --backup: overwrite an existing .bak.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Convert a JSON/YAML/TOML/XML file to another of those formats."""
+    try:
+        if to is None:
+            raise UsageError("--to is required")
+        _check_write_flags(output=output, in_place=in_place, backup=backup)
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    query: dict[str, Any] = {
+        "path": path,
+        "to": to.value,
+        "format": format.value if format else None,
+        "in_place": in_place,
+        "backup": backup,
+    }
+    start = time.perf_counter()
+    try:
+        outcome = api.convert(
+            path,
+            to=to,
+            format=format,
+            output=output,
+            in_place=in_place,
+            backup=backup,
+            force=force,
+        )
+    except OpskitError as error:
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        _report_write_failure(
+            error,
+            command="file.convert",
+            query=query,
+            elapsed_ms=elapsed_ms,
+            as_json=as_json,
+        )
+        raise typer.Exit(int(exit_code_for(error))) from error
+
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    if as_json:
+        envelope = build_envelope(
+            command="file.convert",
+            query=query,
+            result=outcome.result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+        emit_envelopes([envelope], jsonl=False)
+    elif outcome.stdout_content is not None:
+        sys.stdout.buffer.write(outcome.stdout_content)
+    else:
+        render_conversion(outcome.result, console=make_console(no_color=no_color))
+    raise typer.Exit(0)
+
+
+_PRETTY_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file pretty data.json --sort-keys --indent 4
+  opskit file pretty data.json --in-place --backup
+"""
+
+
+@app.command(name="pretty", epilog=_PRETTY_EPILOG)
+def pretty_cmd(
+    path: Annotated[str, typer.Argument(help="File to reformat.")],
+    format: Annotated[
+        Optional[StructuredFormat],
+        typer.Option(
+            "--format",
+            help="Force this format instead of auto-detecting.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    indent: Annotated[
+        int,
+        typer.Option("--indent", help="Indent width.", rich_help_panel="Query"),
+    ] = 2,
+    sort_keys: Annotated[
+        bool,
+        typer.Option("--sort-keys", help="Sort mapping keys.", rich_help_panel="Query"),
+    ] = False,
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--output",
+            help="Write result to this new file instead of stdout.",
+            rich_help_panel="Write",
+        ),
+    ] = None,
+    in_place: Annotated[
+        bool,
+        typer.Option(
+            "--in-place",
+            help="Overwrite the source file atomically.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    backup: Annotated[
+        bool,
+        typer.Option(
+            "--backup",
+            help="With --in-place: write <path>.bak before replacing.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="With --in-place --backup: overwrite an existing .bak.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Reformat a JSON/YAML/XML file's layout without changing its data."""
+    try:
+        _check_write_flags(output=output, in_place=in_place, backup=backup)
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    query: dict[str, Any] = {
+        "path": path,
+        "format": format.value if format else None,
+        "indent": indent,
+        "sort_keys": sort_keys,
+        "in_place": in_place,
+        "backup": backup,
+    }
+    start = time.perf_counter()
+    try:
+        outcome = api.pretty(
+            path,
+            format=format,
+            indent=indent,
+            sort_keys=sort_keys,
+            output=output,
+            in_place=in_place,
+            backup=backup,
+            force=force,
+        )
+    except OpskitError as error:
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        _report_write_failure(
+            error,
+            command="file.pretty",
+            query=query,
+            elapsed_ms=elapsed_ms,
+            as_json=as_json,
+        )
+        raise typer.Exit(int(exit_code_for(error))) from error
+
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    if as_json:
+        envelope = build_envelope(
+            command="file.pretty",
+            query=query,
+            result=outcome.result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+        emit_envelopes([envelope], jsonl=False)
+    elif outcome.stdout_content is not None:
+        sys.stdout.buffer.write(outcome.stdout_content)
+    else:
+        render_conversion(outcome.result, console=make_console(no_color=no_color))
+    raise typer.Exit(0)

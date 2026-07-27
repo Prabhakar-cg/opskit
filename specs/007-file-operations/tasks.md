@@ -113,14 +113,14 @@ without changing its data — both guarded write commands, sharing `formats.py`/
 
 ### Implementation for User Story 3
 
-- [ ] T027 [US3] Implement `convert()` in `src/opskit/file/api.py`: `formats.load(source)` → `formats.dump(data, to)` → `atomic.py` write; rejects `--to` equal to the detected/declared source format as a `UsageError`; propagates the `lossless`/`lossy_reason` fields from the XML mapping (T006) into the returned `ConversionResult` (depends on T005, T007, T008)
-- [ ] T028 [US3] Implement `pretty()` in `src/opskit/file/api.py`: `formats.load()` → re-`dump()` the **same** format with `indent`/`sort_keys` → `atomic.py` write; TOML is rejected with a `UsageError` (already-canonical layout, per spec Assumptions) (depends on T005, T007, T008)
-- [ ] T029 [P] [US3] Category rendering for `convert`/`pretty` results in `src/opskit/file/output.py`, including a visible note when `lossless: false`
-- [ ] T030 [US3] Thin Typer command `convert` in `src/opskit/file/cli.py`: `PATH --to FORMAT [--format]` + write options
-- [ ] T031 [US3] Thin Typer command `pretty` in `src/opskit/file/cli.py`: `PATH [--format] [--indent] [--sort-keys]` + write options
-- [ ] T032 [P] [US3] Unit tests in `tests/unit/test_file_api.py`: `convert()` round-trips JSON⇄YAML⇄TOML (Hypothesis, SC-004); an XML fixture with mixed content converts with `lossless: false` and a reason; an invalid source raises `InvalidContent`; `pretty()` indent/sort-keys change formatting only, non-destructive by default
-- [ ] T033 [P] [US3] CLI unit tests in `tests/unit/test_file_cli.py`: `convert`/`pretty` envelopes; exit codes 0/2/15/16/21/22
-- [ ] T034 [P] [US3] Integration test in `tests/integration/test_file_roundtrip_fs.py`: full CLI invocation round-trip `convert` JSON→YAML→JSON against real `tmp_path` files; `--in-place --backup` end-to-end
+- [X] T027 [US3] Implement `convert()` in `src/opskit/file/api.py`: `formats.load(source)` → `formats.dump(data, to)` → `atomic.py` write; rejects `--to` equal to the detected/declared source format as a `UsageError`; propagates the `lossless`/`lossy_reason` fields from the XML mapping (T006) into the returned `ConversionResult` (depends on T005, T007, T008)
+- [X] T028 [US3] Implement `pretty()` in `src/opskit/file/api.py`: `formats.load()` → re-`dump()` the **same** format with `indent`/`sort_keys` → `atomic.py` write; TOML is rejected with a `UsageError` (already-canonical layout, per spec Assumptions) (depends on T005, T007, T008)
+- [X] T029 [P] [US3] Category rendering for `convert`/`pretty` results in `src/opskit/file/output.py`, including a visible note when `lossless: false`
+- [X] T030 [US3] Thin Typer command `convert` in `src/opskit/file/cli.py`: `PATH --to FORMAT [--format]` + write options
+- [X] T031 [US3] Thin Typer command `pretty` in `src/opskit/file/cli.py`: `PATH [--format] [--indent] [--sort-keys]` + write options
+- [X] T032 [P] [US3] Unit tests in `tests/unit/test_file_api.py`: `convert()` round-trips JSON⇄YAML⇄TOML (Hypothesis, SC-004); an XML fixture with mixed content converts with `lossless: false` and a reason; an invalid source raises `InvalidContent`; `pretty()` indent/sort-keys change formatting only, non-destructive by default
+- [X] T033 [P] [US3] CLI unit tests in `tests/unit/test_file_cli.py`: `convert`/`pretty` envelopes; exit codes 0/2/15/16/21/22
+- [X] T034 [P] [US3] Integration test in `tests/integration/test_file_roundtrip_fs.py`: full CLI invocation round-trip `convert` JSON→YAML→JSON against real `tmp_path` files; `--in-place --backup` end-to-end
 
 **Checkpoint**: `convert` + `pretty` fully usable
 

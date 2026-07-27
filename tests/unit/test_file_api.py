@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from opskit.core.errors import UsageError
 from opskit.file import api
-from opskit.file.errors import ClobberRefused
+from opskit.file.errors import ClobberRefused, InvalidContent
 from opskit.file.models import LineEnding, StructuredFormat
 
 
@@ -137,3 +140,155 @@ def test_eol_backup_without_in_place_is_usage_error(tmp_path: Path):
     path.write_bytes(b"a\n")
     with pytest.raises(UsageError):
         api.eol(path, to=LineEnding.LF, backup=True)
+
+
+# ---------------------------------------------------------------------------
+# convert()
+# ---------------------------------------------------------------------------
+
+
+def test_convert_json_to_yaml_stdout_is_non_destructive(tmp_path: Path):
+    path = tmp_path / "config.json"
+    path.write_text('{"a": 1, "b": [2, 3]}', encoding="utf-8")
+    before = _sha256(path)
+
+    outcome = api.convert(path, to=StructuredFormat.YAML)
+
+    assert _sha256(path) == before
+    assert outcome.result.destination == "-"
+    assert b"a: 1" in outcome.stdout_content
+
+
+def test_convert_round_trip_json_yaml_json(tmp_path: Path):
+    data = {"a": 1, "b": [2, 3], "c": {"d": "e"}}
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    yaml_out = tmp_path / "config.yaml"
+    api.convert(path, to=StructuredFormat.YAML, output=yaml_out)
+
+    json_out = tmp_path / "roundtrip.json"
+    outcome = api.convert(yaml_out, to=StructuredFormat.JSON, output=json_out)
+
+    assert json.loads(json_out.read_text(encoding="utf-8")) == data
+    assert outcome.result.lossless is True
+
+
+def test_convert_round_trip_json_toml_json(tmp_path: Path):
+    data = {"a": 1, "b": ["x", "y"], "c": {"d": True}}
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    toml_out = tmp_path / "config.toml"
+    api.convert(path, to=StructuredFormat.TOML, output=toml_out)
+
+    json_out = tmp_path / "roundtrip.json"
+    api.convert(toml_out, to=StructuredFormat.JSON, output=json_out)
+
+    assert json.loads(json_out.read_text(encoding="utf-8")) == data
+
+
+_json_safe_scalar = st.one_of(
+    st.booleans(),
+    st.integers(min_value=-(2**53), max_value=2**53),
+    st.text(max_size=15),
+)
+_json_safe_value = st.recursive(
+    _json_safe_scalar,
+    lambda children: st.one_of(
+        st.lists(children, max_size=3),
+        st.dictionaries(st.text(min_size=1, max_size=8), children, max_size=3),
+    ),
+    max_leaves=10,
+)
+_json_safe_dict = st.dictionaries(
+    st.text(min_size=1, max_size=8), _json_safe_value, max_size=4
+)
+
+
+@given(data=_json_safe_dict)
+def test_convert_property_round_trip_json_yaml_json(tmp_path_factory, data):
+    tmp_path = tmp_path_factory.mktemp("convert-roundtrip")
+    path = tmp_path / "src.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    yaml_out = tmp_path / "mid.yaml"
+    api.convert(path, to=StructuredFormat.YAML, output=yaml_out)
+    json_out = tmp_path / "back.json"
+    api.convert(yaml_out, to=StructuredFormat.JSON, output=json_out)
+
+    assert json.loads(json_out.read_text(encoding="utf-8")) == data
+
+
+def test_convert_same_format_is_usage_error(tmp_path: Path):
+    path = tmp_path / "config.json"
+    path.write_text('{"a": 1}', encoding="utf-8")
+    with pytest.raises(UsageError):
+        api.convert(path, to=StructuredFormat.JSON)
+
+
+def test_convert_invalid_source_raises_invalid_content(tmp_path: Path):
+    path = tmp_path / "broken.json"
+    path.write_text('{"a": 1,}', encoding="utf-8")
+    with pytest.raises(InvalidContent):
+        api.convert(path, to=StructuredFormat.YAML)
+
+
+def test_convert_xml_mixed_content_is_lossy(tmp_path: Path):
+    path = tmp_path / "mixed.xml"
+    path.write_bytes(b"<root>text<child/>tail</root>")
+    outcome = api.convert(path, to=StructuredFormat.JSON)
+    assert outcome.result.lossless is False
+    assert outcome.result.lossy_reason
+
+
+def test_convert_in_place_backup_preserves_original(tmp_path: Path):
+    path = tmp_path / "config.json"
+    original = '{"a": 1}'
+    path.write_text(original, encoding="utf-8")
+
+    outcome = api.convert(path, to=StructuredFormat.YAML, in_place=True, backup=True)
+
+    backup = Path(outcome.result.backup_path)
+    assert backup.read_text(encoding="utf-8") == original
+    assert path.read_text(encoding="utf-8").startswith("a: 1")
+
+
+# ---------------------------------------------------------------------------
+# pretty()
+# ---------------------------------------------------------------------------
+
+
+def test_pretty_changes_formatting_only_non_destructive(tmp_path: Path):
+    path = tmp_path / "data.json"
+    path.write_text('{"b":1,"a":2}', encoding="utf-8")
+    before = _sha256(path)
+
+    outcome = api.pretty(path, sort_keys=True, indent=4)
+
+    assert _sha256(path) == before
+    assert json.loads(outcome.stdout_content) == {"a": 2, "b": 1}
+    assert outcome.stdout_content.index(b'"a"') < outcome.stdout_content.index(b'"b"')
+
+
+def test_pretty_default_indent_two(tmp_path: Path):
+    path = tmp_path / "data.json"
+    path.write_text('{"a":1}', encoding="utf-8")
+    outcome = api.pretty(path)
+    assert b'\n  "a"' in outcome.stdout_content
+
+
+def test_pretty_toml_is_usage_error(tmp_path: Path):
+    path = tmp_path / "data.toml"
+    path.write_text("a = 1\n", encoding="utf-8")
+    with pytest.raises(UsageError):
+        api.pretty(path)
+
+
+def test_pretty_in_place_rewrites_source(tmp_path: Path):
+    path = tmp_path / "data.json"
+    path.write_text('{"a":1,"b":2}', encoding="utf-8")
+
+    api.pretty(path, in_place=True, indent=4)
+
+    assert path.read_text(encoding="utf-8") == json.dumps({"a": 1, "b": 2}, indent=4)

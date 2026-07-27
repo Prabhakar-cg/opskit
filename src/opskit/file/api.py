@@ -90,6 +90,55 @@ def lineendings(path: str | Path) -> LineEndingReport:
     return textstats.detect_line_endings(path)
 
 
+def _write_guarded(
+    source: Path,
+    content: bytes,
+    *,
+    output: str | Path | None,
+    in_place: bool,
+    backup: bool,
+    force: bool,
+    lossless: bool = True,
+    lossy_reason: str | None = None,
+) -> WriteOutcome:
+    """Route ``content`` through the write-safety helper for every guarded write command.
+
+    Shared by :func:`eol`, :func:`convert`, and :func:`pretty` so the
+    output/in_place/backup/force contract (research R7) is implemented exactly once.
+    """
+    if in_place:
+        backup_path = atomic.write_in_place(source, content, backup=backup, force=force)
+        result = ConversionResult(
+            path=str(source),
+            destination=str(source),
+            in_place=True,
+            backup_path=backup_path,
+            lossless=lossless,
+            lossy_reason=lossy_reason,
+        )
+        return WriteOutcome(result=result, stdout_content=None)
+    if output is not None:
+        destination = Path(output)
+        atomic.write_new_file(destination, content, force=force)
+        result = ConversionResult(
+            path=str(source),
+            destination=str(destination),
+            in_place=False,
+            lossless=lossless,
+            lossy_reason=lossy_reason,
+        )
+        return WriteOutcome(result=result, stdout_content=None)
+
+    result = ConversionResult(
+        path=str(source),
+        destination="-",
+        in_place=False,
+        lossless=lossless,
+        lossy_reason=lossy_reason,
+    )
+    return WriteOutcome(result=result, stdout_content=content)
+
+
 def eol(
     path: str | Path,
     *,
@@ -115,25 +164,94 @@ def eol(
     source = Path(path)
     content = formats.read_bytes(source)
     normalized = textstats.normalize_line_endings(content, to)
+    return _write_guarded(
+        source, normalized, output=output, in_place=in_place, backup=backup, force=force
+    )
 
-    if in_place:
-        backup_path = atomic.write_in_place(
-            source, normalized, backup=backup, force=force
-        )
-        result = ConversionResult(
-            path=str(source),
-            destination=str(source),
-            in_place=True,
-            backup_path=backup_path,
-        )
-        return WriteOutcome(result=result, stdout_content=None)
-    if output is not None:
-        destination = Path(output)
-        atomic.write_new_file(destination, normalized, force=force)
-        result = ConversionResult(
-            path=str(source), destination=str(destination), in_place=False
-        )
-        return WriteOutcome(result=result, stdout_content=None)
 
-    result = ConversionResult(path=str(source), destination="-", in_place=False)
-    return WriteOutcome(result=result, stdout_content=normalized)
+def _lossy_reason(*reasons: str | None) -> str | None:
+    combined = [reason for reason in reasons if reason]
+    return "; ".join(combined) if combined else None
+
+
+def convert(
+    path: str | Path,
+    *,
+    to: StructuredFormat,
+    format: StructuredFormat | None = None,
+    output: str | Path | None = None,
+    in_place: bool = False,
+    backup: bool = False,
+    force: bool = False,
+) -> WriteOutcome:
+    """Convert ``path``'s structured data to ``to`` (FR-010).
+
+    Raises:
+        FileNotFoundOnDisk / FilePermissionDenied: reading the source, or writing the
+            destination/backup, failed.
+        InvalidContent: the source fails to parse as its (detected/declared) format.
+        ClobberRefused: ``backup`` was requested but ``<path>.bak`` already exists (or
+            ``output`` already exists), and ``force`` was not passed.
+        UsageError: ``to`` equals the detected/declared source format.
+    """
+    _validate_write_destination(output=output, in_place=in_place, backup=backup)
+    source = Path(path)
+    loaded = formats.load(source, format=format)
+    if to is loaded.format:
+        raise UsageError(
+            f"source is already {to.value}; --to must differ from the source format"
+        )
+    dumped = formats.dump(loaded.data, to)
+    return _write_guarded(
+        source,
+        dumped.content,
+        output=output,
+        in_place=in_place,
+        backup=backup,
+        force=force,
+        lossless=loaded.lossless and dumped.lossless,
+        lossy_reason=_lossy_reason(loaded.lossy_reason, dumped.lossy_reason),
+    )
+
+
+def pretty(
+    path: str | Path,
+    *,
+    format: StructuredFormat | None = None,
+    indent: int = 2,
+    sort_keys: bool = False,
+    output: str | Path | None = None,
+    in_place: bool = False,
+    backup: bool = False,
+    force: bool = False,
+) -> WriteOutcome:
+    """Reformat ``path``'s layout without changing its data (FR-013).
+
+    Raises:
+        FileNotFoundOnDisk / FilePermissionDenied: reading the source, or writing the
+            destination/backup, failed.
+        InvalidContent: the source fails to parse as its (detected/declared) format.
+        ClobberRefused: as :func:`convert`.
+        UsageError: the (detected/declared) format is TOML — its layout is already canonical.
+    """
+    _validate_write_destination(output=output, in_place=in_place, backup=backup)
+    source = Path(path)
+    loaded = formats.load(source, format=format)
+    if loaded.format is StructuredFormat.TOML:
+        raise UsageError(
+            "TOML has no free-form pretty option",
+            hint="its layout is already canonical",
+        )
+    dumped = formats.dump(
+        loaded.data, loaded.format, indent=indent, sort_keys=sort_keys
+    )
+    return _write_guarded(
+        source,
+        dumped.content,
+        output=output,
+        in_place=in_place,
+        backup=backup,
+        force=force,
+        lossless=loaded.lossless and dumped.lossless,
+        lossy_reason=_lossy_reason(loaded.lossy_reason, dumped.lossy_reason),
+    )

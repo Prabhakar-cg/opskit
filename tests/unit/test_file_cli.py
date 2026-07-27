@@ -7,8 +7,14 @@ import json
 from typer.testing import CliRunner
 
 from opskit.cli import app
+from opskit.core.errors import UsageError
 from opskit.file.api import WriteOutcome
-from opskit.file.errors import ClobberRefused, FileNotFoundOnDisk, FilePermissionDenied
+from opskit.file.errors import (
+    ClobberRefused,
+    FileNotFoundOnDisk,
+    FilePermissionDenied,
+    InvalidContent,
+)
 from opskit.file.models import ConversionResult, StructuredFormat, ValidationResult
 
 runner = CliRunner()
@@ -306,3 +312,169 @@ def test_eol_human_output_error_smoke(monkeypatch):
     )
     assert result.exit_code == 16
     assert "missing.sh" in result.output
+
+
+def _convert_outcome(path="/data/config.json", *, destination="-", lossless=True):
+    return WriteOutcome(
+        result=ConversionResult(
+            path=path,
+            destination=destination,
+            in_place=destination == path,
+            lossless=lossless,
+        ),
+        stdout_content=b"name: svc\n" if destination == "-" else None,
+    )
+
+
+def test_convert_missing_to_is_usage_error():
+    result = runner.invoke(app, ["file", "convert", "config.json"])
+    assert result.exit_code == 2
+
+
+def test_convert_output_with_in_place_is_usage_error():
+    result = runner.invoke(
+        app,
+        [
+            "file",
+            "convert",
+            "config.json",
+            "--to",
+            "yaml",
+            "--output",
+            "x",
+            "--in-place",
+        ],
+    )
+    assert result.exit_code == 2
+
+
+def test_convert_json_envelope(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.convert",
+        lambda p, **kw: _convert_outcome(p, destination="out.yaml"),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "file",
+            "convert",
+            "config.json",
+            "--to",
+            "yaml",
+            "--output",
+            "out.yaml",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.convert"
+    assert payload["query"]["to"] == "yaml"
+    assert payload["result"]["destination"] == "out.yaml"
+
+
+def test_convert_stdout_content(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.convert", lambda p, **kw: _convert_outcome(p)
+    )
+    result = runner.invoke(app, ["file", "convert", "config.json", "--to", "yaml"])
+    assert result.exit_code == 0
+    assert result.stdout_bytes == b"name: svc\n"
+
+
+def test_convert_usage_error_from_api_json_envelope(monkeypatch):
+    def fake(p, **kw):
+        raise UsageError(
+            "source is already json; --to must differ from the source format"
+        )
+
+    monkeypatch.setattr("opskit.file.cli.api.convert", fake)
+    result = runner.invoke(
+        app, ["file", "convert", "config.json", "--to", "json", "--json"]
+    )
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["result"] is None
+    assert payload["error"]["code"] == "usage_error"
+
+
+def test_convert_invalid_content_exit_code(monkeypatch):
+    def fake(p, **kw):
+        raise InvalidContent(f"invalid JSON in {p}")
+
+    monkeypatch.setattr("opskit.file.cli.api.convert", fake)
+    result = runner.invoke(
+        app, ["file", "convert", "broken.json", "--to", "yaml", "--json"]
+    )
+    assert result.exit_code == 21
+
+
+def test_convert_clobber_refused_exit_code(monkeypatch):
+    def fake(p, **kw):
+        raise ClobberRefused(f"refusing to overwrite: {p}.bak")
+
+    monkeypatch.setattr("opskit.file.cli.api.convert", fake)
+    result = runner.invoke(
+        app,
+        [
+            "file",
+            "convert",
+            "config.json",
+            "--to",
+            "yaml",
+            "--in-place",
+            "--backup",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 22
+
+
+def test_convert_human_output_error_no_json_mixing(monkeypatch):
+    def fake(p, **kw):
+        raise FileNotFoundOnDisk(f"file not found: {p}")
+
+    monkeypatch.setattr("opskit.file.cli.api.convert", fake)
+    result = runner.invoke(app, ["file", "convert", "missing.json", "--to", "yaml"])
+    assert result.exit_code == 16
+    assert "missing.json" in result.output
+
+
+def test_pretty_json_envelope(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.pretty",
+        lambda p, **kw: _convert_outcome(p, destination=p),
+    )
+    result = runner.invoke(
+        app, ["file", "pretty", "data.json", "--sort-keys", "--in-place", "--json"]
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.pretty"
+    assert payload["query"]["sort_keys"] is True
+    assert payload["query"]["indent"] == 2
+
+
+def test_pretty_toml_usage_error_from_api(monkeypatch):
+    def fake(p, **kw):
+        raise UsageError("TOML has no free-form pretty option")
+
+    monkeypatch.setattr("opskit.file.cli.api.pretty", fake)
+    result = runner.invoke(app, ["file", "pretty", "data.toml", "--json"])
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["error"]["code"] == "usage_error"
+
+
+def test_pretty_backup_without_in_place_is_usage_error():
+    result = runner.invoke(app, ["file", "pretty", "data.json", "--backup"])
+    assert result.exit_code == 2
+
+
+def test_pretty_stdout_content(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.pretty", lambda p, **kw: _convert_outcome(p)
+    )
+    result = runner.invoke(app, ["file", "pretty", "data.json"])
+    assert result.exit_code == 0
+    assert result.stdout_bytes == b"name: svc\n"
