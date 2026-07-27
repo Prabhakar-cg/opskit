@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from opskit.core.errors import UsageError
 from opskit.file import textstats
-from opskit.file.errors import FileNotFoundOnDisk
+from opskit.file.errors import FileNotFoundOnDisk, InvalidContent
 from opskit.file.models import LineEnding
 
 
@@ -120,3 +121,126 @@ def test_normalize_is_idempotent():
     once = textstats.normalize_line_endings(content, LineEnding.LF)
     twice = textstats.normalize_line_endings(once, LineEnding.LF)
     assert once == twice == content
+
+
+# ---------------------------------------------------------------------------
+# Encoding detection (research R4)
+# ---------------------------------------------------------------------------
+
+
+def test_detect_encoding_utf8_bom():
+    report = textstats.detect_encoding_bytes(b"\xef\xbb\xbfhello")
+    assert report.encoding == "utf-8-sig"
+    assert report.has_bom is True
+    assert report.confidence is None
+    assert report.invalid_sequences is False
+
+
+def test_detect_encoding_utf16_le_bom():
+    raw = "hello".encode("utf-16-le")
+    report = textstats.detect_encoding_bytes(b"\xff\xfe" + raw)
+    assert report.encoding == "utf-16-le"
+    assert report.has_bom is True
+    assert report.invalid_sequences is False
+
+
+def test_detect_encoding_utf16_be_bom():
+    raw = "hello".encode("utf-16-be")
+    report = textstats.detect_encoding_bytes(b"\xfe\xff" + raw)
+    assert report.encoding == "utf-16-be"
+    assert report.has_bom is True
+    assert report.invalid_sequences is False
+
+
+def test_detect_encoding_utf32_le_bom():
+    raw = "hello".encode("utf-32-le")
+    report = textstats.detect_encoding_bytes(b"\xff\xfe\x00\x00" + raw)
+    assert report.encoding == "utf-32-le"
+    assert report.has_bom is True
+    assert report.invalid_sequences is False
+
+
+def test_detect_encoding_utf32_be_bom():
+    raw = "hello".encode("utf-32-be")
+    report = textstats.detect_encoding_bytes(b"\x00\x00\xfe\xff" + raw)
+    assert report.encoding == "utf-32-be"
+    assert report.has_bom is True
+    assert report.invalid_sequences is False
+
+
+def test_detect_encoding_bom_with_invalid_sequence_flagged():
+    # A UTF-16-LE BOM followed by an odd number of trailing bytes cannot decode cleanly.
+    report = textstats.detect_encoding_bytes(b"\xff\xfe" + b"a")
+    assert report.encoding == "utf-16-le"
+    assert report.invalid_sequences is True
+
+
+def test_detect_encoding_no_bom_uses_charset_normalizer():
+    report = textstats.detect_encoding_bytes(b"plain ascii text, nothing special here")
+    assert report.has_bom is False
+    assert report.encoding is not None
+    assert report.confidence is not None
+    assert 0.0 <= report.confidence <= 1.0
+
+
+def test_detect_encoding_undecodable_binary_is_unknown(monkeypatch):
+    class _NoMatch:
+        def best(self):
+            return None
+
+    monkeypatch.setattr(
+        textstats.charset_normalizer, "from_bytes", lambda raw: _NoMatch()
+    )
+    report = textstats.detect_encoding_bytes(b"\x00\x01\x02")
+    assert report.encoding == "unknown"
+    assert report.invalid_sequences is True
+
+
+def test_detect_encoding_path_reads_from_disk(tmp_path: Path):
+    path = tmp_path / "bom.txt"
+    path.write_bytes(b"\xef\xbb\xbfhello")
+    report = textstats.detect_encoding(path)
+    assert report.path == str(path)
+    assert report.encoding == "utf-8-sig"
+
+
+def test_detect_encoding_missing_file_raises(tmp_path: Path):
+    with pytest.raises(FileNotFoundOnDisk):
+        textstats.detect_encoding(tmp_path / "nope.txt")
+
+
+# ---------------------------------------------------------------------------
+# transcode() (research R4, FR-012)
+# ---------------------------------------------------------------------------
+
+
+def test_transcode_latin1_to_utf8_round_trips_text():
+    original = "café résumé"
+    content = original.encode("latin-1")
+    transcoded = textstats.transcode(
+        content, from_encoding="latin-1", to_encoding="utf-8"
+    )
+    assert transcoded.decode("utf-8") == original
+
+
+def test_transcode_unencodable_character_raises_invalid_content():
+    content = "café".encode("latin-1")
+    with pytest.raises(InvalidContent):
+        textstats.transcode(content, from_encoding="latin-1", to_encoding="ascii")
+
+
+def test_transcode_undecodable_source_raises_invalid_content():
+    # 0xFF is not valid in the middle of a UTF-8 sequence.
+    content = b"hello \xff world"
+    with pytest.raises(InvalidContent):
+        textstats.transcode(content, from_encoding="utf-8", to_encoding="ascii")
+
+
+def test_transcode_unknown_source_codec_is_usage_error():
+    with pytest.raises(UsageError):
+        textstats.transcode(b"hello", from_encoding="bogus-codec", to_encoding="utf-8")
+
+
+def test_transcode_unknown_target_codec_is_usage_error():
+    with pytest.raises(UsageError):
+        textstats.transcode(b"hello", from_encoding="utf-8", to_encoding="bogus-codec")

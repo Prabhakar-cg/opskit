@@ -13,6 +13,7 @@ from rich.markup import escape
 from opskit.file.models import (
     ChecksumResult,
     ConversionResult,
+    EncodingReport,
     IdentificationResult,
     LineEndingReport,
     ValidationResult,
@@ -78,3 +79,15 @@ def render_checksum(result: ChecksumResult, *, console: Console) -> None:
     """Print one file's checksum."""
     path = escape(result.path)
     console.print(f"{result.algorithm}:{result.digest}  {path}")
+
+
+def render_encoding(result: EncodingReport, *, console: Console) -> None:
+    """Print one file's detected encoding, BOM status, and any invalid sequences."""
+    path = escape(result.path)
+    encoding = escape(result.encoding)
+    bits = ["bom" if result.has_bom else "no-bom"]
+    if result.confidence is not None:
+        bits.append(f"confidence={result.confidence:.2f}")
+    if result.invalid_sequences:
+        bits.append("[red]invalid sequences[/red]")
+    console.print(f"{encoding}  {path}  ({', '.join(bits)})")

@@ -18,6 +18,7 @@ from opskit.file.errors import (
 from opskit.file.models import (
     ChecksumResult,
     ConversionResult,
+    EncodingReport,
     IdentificationResult,
     StructuredFormat,
     ValidationResult,
@@ -600,3 +601,151 @@ def test_hash_not_found_exit_code(monkeypatch):
     monkeypatch.setattr("opskit.file.cli.api.hash_files", fake)
     result = runner.invoke(app, ["file", "hash", "missing.tar.gz", "--json"])
     assert result.exit_code == 16
+
+
+def _encoding(
+    path="/data/legacy.txt", *, encoding="utf-8", has_bom=False, confidence=1.0
+):
+    return EncodingReport(
+        path=path,
+        encoding=encoding,
+        has_bom=has_bom,
+        confidence=confidence,
+        invalid_sequences=False,
+    )
+
+
+def test_encoding_json_envelope(monkeypatch):
+    monkeypatch.setattr("opskit.file.cli.api.encoding", _encoding)
+    result = runner.invoke(app, ["file", "encoding", "legacy.txt", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.encoding"
+    assert payload["result"]["encoding"] == "utf-8"
+
+
+def test_encoding_human_output_smoke(monkeypatch):
+    monkeypatch.setattr("opskit.file.cli.api.encoding", _encoding)
+    result = runner.invoke(app, ["file", "encoding", "legacy.txt", "--no-color"])
+    assert result.exit_code == 0
+    assert "legacy.txt" in result.stdout
+    assert "utf-8" in result.stdout
+
+
+def test_encoding_not_found_exit_code(monkeypatch):
+    def fake(p):
+        raise FileNotFoundOnDisk(f"file not found: {p}")
+
+    monkeypatch.setattr("opskit.file.cli.api.encoding", fake)
+    result = runner.invoke(app, ["file", "encoding", "missing.txt", "--json"])
+    assert result.exit_code == 16
+
+
+def _reencode_outcome(path="/data/legacy.txt", *, destination="-"):
+    return WriteOutcome(
+        result=ConversionResult(
+            path=path, destination=destination, in_place=destination == path
+        ),
+        stdout_content=b"cafe\n" if destination == "-" else None,
+    )
+
+
+def test_reencode_missing_to_is_usage_error():
+    result = runner.invoke(app, ["file", "reencode", "legacy.txt"])
+    assert result.exit_code == 2
+
+
+def test_reencode_output_with_in_place_is_usage_error():
+    result = runner.invoke(
+        app,
+        [
+            "file",
+            "reencode",
+            "legacy.txt",
+            "--to",
+            "utf-8",
+            "--output",
+            "x",
+            "--in-place",
+        ],
+    )
+    assert result.exit_code == 2
+
+
+def test_reencode_json_envelope(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.reencode",
+        lambda p, **kw: _reencode_outcome(p, destination="out.txt"),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "file",
+            "reencode",
+            "legacy.txt",
+            "--to",
+            "utf-8",
+            "--from",
+            "latin-1",
+            "--output",
+            "out.txt",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.reencode"
+    assert payload["query"]["to"] == "utf-8"
+    assert payload["query"]["from"] == "latin-1"
+    assert payload["result"]["destination"] == "out.txt"
+
+
+def test_reencode_stdout_content(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.reencode", lambda p, **kw: _reencode_outcome(p)
+    )
+    result = runner.invoke(app, ["file", "reencode", "legacy.txt", "--to", "utf-8"])
+    assert result.exit_code == 0
+    assert result.stdout_bytes == b"cafe\n"
+
+
+def test_reencode_invalid_content_exit_code(monkeypatch):
+    def fake(p, **kw):
+        raise InvalidContent("cannot represent this content in ascii")
+
+    monkeypatch.setattr("opskit.file.cli.api.reencode", fake)
+    result = runner.invoke(
+        app, ["file", "reencode", "legacy.txt", "--to", "ascii", "--json"]
+    )
+    assert result.exit_code == 21
+
+
+def test_reencode_clobber_refused_exit_code(monkeypatch):
+    def fake(p, **kw):
+        raise ClobberRefused(f"refusing to overwrite: {p}.bak")
+
+    monkeypatch.setattr("opskit.file.cli.api.reencode", fake)
+    result = runner.invoke(
+        app,
+        [
+            "file",
+            "reencode",
+            "legacy.txt",
+            "--to",
+            "utf-8",
+            "--in-place",
+            "--backup",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 22
+
+
+def test_reencode_human_output_error_no_json_mixing(monkeypatch):
+    def fake(p, **kw):
+        raise FileNotFoundOnDisk(f"file not found: {p}")
+
+    monkeypatch.setattr("opskit.file.cli.api.reencode", fake)
+    result = runner.invoke(app, ["file", "reencode", "missing.txt", "--to", "utf-8"])
+    assert result.exit_code == 16
+    assert "missing.txt" in result.output

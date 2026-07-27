@@ -161,14 +161,14 @@ correctly detected; a Latin-1→UTF-8 transcode round-trips the original text.
 
 ### Implementation for User Story 5
 
-- [ ] T045 [P] [US5] Implement encoding detection in `src/opskit/file/textstats.py`: BOM check via a stdlib byte-prefix table (UTF-8/UTF-16-LE/UTF-16-BE/UTF-32); no-BOM fallback via `charset_normalizer.from_bytes(...).best()`; invalid-byte-sequence flagging (research R4)
-- [ ] T046 [US5] Implement `encoding()` in `src/opskit/file/api.py`, batch-safe (depends on T005, T045)
-- [ ] T047 [US5] Implement transcoding in `src/opskit/file/textstats.py` and `reencode()` in `src/opskit/file/api.py`: decode with the source encoding (declared via `--from` or detected), re-encode with the target, raising `InvalidContent` naming the offending character when the target encoding can't represent it; write via `atomic.py` (T008) (depends on T005, T008, T045)
-- [ ] T048 [P] [US5] Category rendering for `encoding`/`reencode` in `src/opskit/file/output.py`
-- [ ] T049 [US5] Thin Typer command `encoding` in `src/opskit/file/cli.py`
-- [ ] T050 [US5] Thin Typer command `reencode` in `src/opskit/file/cli.py`: `--to` (required), `--from` (optional) + write options
-- [ ] T051 [P] [US5] Unit tests in `tests/unit/test_file_textstats.py`: BOM detection for each variant, no-BOM detection via `charset-normalizer`, invalid-sequence flagging, a transcode round-trip, an unencodable-character failure
-- [ ] T052 [P] [US5] CLI unit tests in `tests/unit/test_file_cli.py`: `encoding`/`reencode` envelopes and exit codes
+- [X] T045 [P] [US5] Implement encoding detection in `src/opskit/file/textstats.py`: BOM check via a stdlib byte-prefix table (UTF-8/UTF-16-LE/UTF-16-BE/UTF-32); no-BOM fallback via `charset_normalizer.from_bytes(...).best()`; invalid-byte-sequence flagging (research R4)
+- [X] T046 [US5] Implement `encoding()` in `src/opskit/file/api.py`, batch-safe (depends on T005, T045)
+- [X] T047 [US5] Implement transcoding in `src/opskit/file/textstats.py` and `reencode()` in `src/opskit/file/api.py`: decode with the source encoding (declared via `--from` or detected), re-encode with the target, raising `InvalidContent` naming the offending character when the target encoding can't represent it; write via `atomic.py` (T008) (depends on T005, T008, T045)
+- [X] T048 [P] [US5] Category rendering for `encoding`/`reencode` in `src/opskit/file/output.py`
+- [X] T049 [US5] Thin Typer command `encoding` in `src/opskit/file/cli.py`
+- [X] T050 [US5] Thin Typer command `reencode` in `src/opskit/file/cli.py`: `--to` (required), `--from` (optional) + write options
+- [X] T051 [P] [US5] Unit tests in `tests/unit/test_file_textstats.py`: BOM detection for each variant, no-BOM detection via `charset-normalizer`, invalid-sequence flagging, a transcode round-trip, an unencodable-character failure
+- [X] T052 [P] [US5] CLI unit tests in `tests/unit/test_file_cli.py`: `encoding`/`reencode` envelopes and exit codes
 
 **Checkpoint**: encoding diagnostics + transcoding fully usable
 

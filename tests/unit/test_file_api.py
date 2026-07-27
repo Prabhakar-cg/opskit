@@ -12,7 +12,7 @@ from hypothesis import strategies as st
 
 from opskit.core.errors import UsageError
 from opskit.file import api
-from opskit.file.errors import ClobberRefused, InvalidContent
+from opskit.file.errors import ClobberRefused, FileNotFoundOnDisk, InvalidContent
 from opskit.file.models import LineEnding, StructuredFormat
 
 
@@ -359,3 +359,85 @@ def test_hash_files_unsupported_algo_is_usage_error(tmp_path: Path):
     path.write_bytes(b"hello")
     with pytest.raises(UsageError):
         api.hash_files(path, algo="sha512")
+
+
+# ---------------------------------------------------------------------------
+# encoding()
+# ---------------------------------------------------------------------------
+
+
+def test_encoding_detects_bom(tmp_path: Path):
+    path = tmp_path / "bom.txt"
+    path.write_bytes(b"\xef\xbb\xbfhello")
+    result = api.encoding(path)
+    assert result.encoding == "utf-8-sig"
+    assert result.has_bom is True
+
+
+def test_encoding_missing_file_raises(tmp_path: Path):
+    with pytest.raises(FileNotFoundOnDisk):
+        api.encoding(tmp_path / "nope.txt")
+
+
+# ---------------------------------------------------------------------------
+# reencode()
+# ---------------------------------------------------------------------------
+
+
+def test_reencode_explicit_from_round_trips_text(tmp_path: Path):
+    path = tmp_path / "legacy.txt"
+    original = "café résumé"
+    path.write_bytes(original.encode("latin-1"))
+
+    outcome = api.reencode(path, to="utf-8", from_="latin-1")
+
+    assert outcome.stdout_content.decode("utf-8") == original
+
+
+def test_reencode_auto_detects_source_encoding(tmp_path: Path):
+    path = tmp_path / "bom.txt"
+    path.write_bytes("hello".encode("utf-16"))
+
+    outcome = api.reencode(path, to="utf-8")
+
+    assert outcome.stdout_content == b"hello"
+
+
+def test_reencode_output_leaves_source_untouched(tmp_path: Path):
+    path = tmp_path / "legacy.txt"
+    original_bytes = "café".encode("latin-1")
+    path.write_bytes(original_bytes)
+    dest = tmp_path / "out.utf8.txt"
+
+    api.reencode(path, to="utf-8", from_="latin-1", output=dest)
+
+    assert path.read_bytes() == original_bytes
+    assert dest.read_text(encoding="utf-8") == "café"
+
+
+def test_reencode_in_place_backup(tmp_path: Path):
+    path = tmp_path / "legacy.txt"
+    original_bytes = "café".encode("latin-1")
+    path.write_bytes(original_bytes)
+
+    outcome = api.reencode(
+        path, to="utf-8", from_="latin-1", in_place=True, backup=True
+    )
+
+    backup = Path(outcome.result.backup_path)
+    assert backup.read_bytes() == original_bytes
+    assert path.read_text(encoding="utf-8") == "café"
+
+
+def test_reencode_unencodable_character_raises_invalid_content(tmp_path: Path):
+    path = tmp_path / "legacy.txt"
+    path.write_bytes("café".encode("latin-1"))
+    with pytest.raises(InvalidContent):
+        api.reencode(path, to="ascii", from_="latin-1")
+
+
+def test_reencode_output_and_in_place_is_usage_error(tmp_path: Path):
+    path = tmp_path / "legacy.txt"
+    path.write_bytes(b"hello")
+    with pytest.raises(UsageError):
+        api.reencode(path, to="utf-8", output=tmp_path / "out.txt", in_place=True)

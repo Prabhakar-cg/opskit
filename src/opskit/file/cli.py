@@ -31,6 +31,7 @@ from opskit.file import api
 from opskit.file.models import (
     ChecksumResult,
     ConversionResult,
+    EncodingReport,
     IdentificationResult,
     LineEnding,
     LineEndingReport,
@@ -40,6 +41,7 @@ from opskit.file.models import (
 from opskit.file.output import (
     render_checksum,
     render_conversion,
+    render_encoding,
     render_identify,
     render_lineendings,
     render_validation,
@@ -1008,3 +1010,231 @@ def hash_cmd(
 
     codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
     raise typer.Exit(int(aggregate_exit(codes)))
+
+
+_ENCODING_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file encoding legacy.txt
+  opskit file encoding *.txt --json
+  opskit file encoding -i paths.txt --jsonl
+"""
+
+
+def _encoding_envelope(
+    path: str,
+    result: Optional[EncodingReport],
+    error: Optional[OpskitError],
+    elapsed_ms: float,
+) -> dict[str, Any]:
+    query: dict[str, Any] = {"path": path}
+    if result is not None:
+        return build_envelope(
+            command="file.encoding",
+            query=query,
+            result=result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+    return build_envelope(
+        command="file.encoding",
+        query=query,
+        result=None,
+        error=error,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+@app.command(name="encoding", epilog=_ENCODING_EPILOG)
+def encoding_cmd(
+    paths: Annotated[
+        Optional[list[str]],
+        typer.Argument(help="File path(s) to inspect (or use --input-file)."),
+    ] = None,
+    input_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--input-file",
+            "-i",
+            help="File of paths, one per line (# comments allowed); '-' reads stdin.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    jsonl: Annotated[
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Detect each file's text encoding, BOM presence, and invalid byte sequences."""
+    try:
+        targets = collect_target_list(paths, input_file)
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    timings: dict[str, float] = {}
+
+    def _timed_encoding(p: str) -> EncodingReport:
+        start = time.perf_counter()
+        try:
+            return api.encoding(p)
+        finally:
+            timings[p] = (time.perf_counter() - start) * 1000.0
+
+    outcomes = collect_outcomes(targets, _timed_encoding)
+
+    if as_json or jsonl:
+        envelopes = [
+            _encoding_envelope(t, r, e, timings.get(t, 0.0)) for t, r, e in outcomes
+        ]
+        emit_envelopes(envelopes, jsonl=jsonl)
+    else:
+        console = make_console(no_color=no_color)
+        for _, result, error in outcomes:
+            if error is not None:
+                message = f"error: {error.message}"
+                if error.hint:
+                    message += f"\nhint: {error.hint}"
+                typer.echo(message, err=True)
+            elif result is not None:
+                render_encoding(result, console=console)
+
+    codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
+    raise typer.Exit(int(aggregate_exit(codes)))
+
+
+_REENCODE_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file reencode legacy.txt --from iso-8859-1 --to utf-8 --output legacy.utf8.txt
+  opskit file reencode legacy.txt --to utf-8 --in-place --backup
+"""
+
+
+@app.command(name="reencode", epilog=_REENCODE_EPILOG)
+def reencode_cmd(
+    path: Annotated[str, typer.Argument(help="File to transcode.")],
+    to: Annotated[
+        Optional[str],
+        typer.Option("--to", help="Target encoding name.", rich_help_panel="Query"),
+    ] = None,
+    from_: Annotated[
+        Optional[str],
+        typer.Option(
+            "--from",
+            help="Source encoding, overriding auto-detection.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    output: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--output",
+            help="Write result to this new file instead of stdout.",
+            rich_help_panel="Write",
+        ),
+    ] = None,
+    in_place: Annotated[
+        bool,
+        typer.Option(
+            "--in-place",
+            help="Overwrite the source file atomically.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    backup: Annotated[
+        bool,
+        typer.Option(
+            "--backup",
+            help="With --in-place: write <path>.bak before replacing.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="With --in-place --backup: overwrite an existing .bak.",
+            rich_help_panel="Write",
+        ),
+    ] = False,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Transcode a text file from one encoding to another."""
+    try:
+        if to is None:
+            raise UsageError("--to is required")
+        _check_write_flags(output=output, in_place=in_place, backup=backup)
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    query: dict[str, Any] = {
+        "path": path,
+        "to": to,
+        "from": from_,
+        "in_place": in_place,
+        "backup": backup,
+    }
+    start = time.perf_counter()
+    try:
+        outcome = api.reencode(
+            path,
+            to=to,
+            from_=from_,
+            output=output,
+            in_place=in_place,
+            backup=backup,
+            force=force,
+        )
+    except OpskitError as error:
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        _report_write_failure(
+            error,
+            command="file.reencode",
+            query=query,
+            elapsed_ms=elapsed_ms,
+            as_json=as_json,
+        )
+        raise typer.Exit(int(exit_code_for(error))) from error
+
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    if as_json:
+        envelope = build_envelope(
+            command="file.reencode",
+            query=query,
+            result=outcome.result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+        emit_envelopes([envelope], jsonl=False)
+    elif outcome.stdout_content is not None:
+        sys.stdout.buffer.write(outcome.stdout_content)
+    else:
+        render_conversion(outcome.result, console=make_console(no_color=no_color))
+    raise typer.Exit(0)

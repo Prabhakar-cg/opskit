@@ -20,6 +20,7 @@ from opskit.file.errors import InvalidContent
 from opskit.file.models import (
     ChecksumResult,
     ConversionResult,
+    EncodingReport,
     IdentificationResult,
     LineEnding,
     LineEndingReport,
@@ -287,3 +288,42 @@ def hash_files(path: str | Path, *, algo: str = "sha256") -> ChecksumResult:
     """
     digest = hashing.compute_hash(path, algo)
     return ChecksumResult(path=str(path), algorithm=algo, digest=digest)
+
+
+def encoding(path: str | Path) -> EncodingReport:
+    """Detect ``path``'s text encoding, BOM presence, and invalid-sequence flag (FR-002).
+
+    Raises:
+        FileNotFoundOnDisk / FilePermissionDenied: ``path`` could not be read.
+    """
+    return textstats.detect_encoding(path)
+
+
+def reencode(
+    path: str | Path,
+    *,
+    to: str,
+    from_: str | None = None,
+    output: str | Path | None = None,
+    in_place: bool = False,
+    backup: bool = False,
+    force: bool = False,
+) -> WriteOutcome:
+    """Transcode ``path`` from ``from_`` (or its detected encoding) to ``to`` (FR-012).
+
+    Raises:
+        FileNotFoundOnDisk / FilePermissionDenied: reading the source, or writing the
+            destination/backup, failed.
+        InvalidContent: the source cannot be decoded using the source encoding, or
+            contains a character ``to`` cannot represent.
+        ClobberRefused: ``backup`` was requested but ``<path>.bak`` already exists (or
+            ``output`` already exists), and ``force`` was not passed.
+        UsageError: ``from_``/``to`` names an unknown codec.
+    """
+    _validate_write_destination(output=output, in_place=in_place, backup=backup)
+    source = Path(path)
+    content = formats.read_bytes(source)
+    transcoded = textstats.transcode(content, from_encoding=from_, to_encoding=to)
+    return _write_guarded(
+        source, transcoded, output=output, in_place=in_place, backup=backup, force=force
+    )
