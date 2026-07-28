@@ -1238,15 +1238,19 @@ wheels = [
 name = "opskit"
 source = { editable = "." }
 dependencies = [
+    { name = "charset-normalizer" },
     { name = "cryptography" },
+    { name = "defusedxml" },
     { name = "dnspython", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "dnspython", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "platformdirs", version = "4.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "platformdirs", version = "4.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "psutil" },
     { name = "pyopenssl" },
+    { name = "pyyaml" },
     { name = "rich" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "tomli-w" },
     { name = "typer", version = "0.23.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "typer", version = "0.26.8", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
@@ -1272,11 +1276,14 @@ dev = [
     { name = "ruff" },
     { name = "types-psutil", version = "7.2.2.20260130", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "types-psutil", version = "7.2.2.20260518", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "types-pyyaml", marker = "python_full_version >= '3.10'" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "charset-normalizer", specifier = ">=3,<4" },
     { name = "cryptography", specifier = ">=48.0.1,<50" },
+    { name = "defusedxml", specifier = ">=0.7,<1" },
     { name = "dnslib", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "dnspython", specifier = ">=2.6,<3" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6" },
@@ -1292,11 +1299,14 @@ requires-dist = [
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.380" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
+    { name = "pyyaml", specifier = ">=6,<7" },
     { name = "rich", specifier = ">=13,<16" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2" },
+    { name = "tomli-w", specifier = ">=1,<2" },
     { name = "typer", specifier = ">=0.12,<1" },
     { name = "types-psutil", marker = "extra == 'dev'", specifier = ">=6" },
+    { name = "types-pyyaml", marker = "python_full_version >= '3.10' and extra == 'dev'", specifier = ">=6" },
 ]
 provides-extras = ["ad", "dev"]
 
@@ -1890,6 +1900,15 @@ resolution-markers = [
 sdist = { url = "https://files.pythonhosted.org/packages/cb/f1/6901857281d4e8d792492e1495eef6f4f01318a3b6a066486d81000a4511/types_psutil-7.2.2.20260518.tar.gz", hash = "sha256:9f825f631463a5b4d26f19f63aebc9ec25f01140d655026f3ad8a67841f9b331", size = 26660, upload-time = "2026-05-18T06:05:09.389Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cd/eb/f726339668879819599c74c2e1f0cab760912a4159046942bdae2ad37bd6/types_psutil-7.2.2.20260518-py3-none-any.whl", hash = "sha256:6a3d697665754a60d7b5a41d5a2cff12b53f5e0676d77810cd28ba5e14cb4049", size = 32820, upload-time = "2026-05-18T06:05:08.321Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20260724"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/6f/a28f44bcd56bebed42b028a2894c79853e2f5e6b5279e633cb3f287a05e7/types_pyyaml-6.0.12.20260724.tar.gz", hash = "sha256:3c1ce1bb73cd5ec02e90390c2b1f00e810d241d8825fd73ff359696839271b6b", size = 17893, upload-time = "2026-07-24T04:58:43.453Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/42/0337fefc615e20ee55d1c8f71b774a9b2b734a04669139c20753b27a2a3a/types_pyyaml-6.0.12.20260724-py3-none-any.whl", hash = "sha256:d57db930a4b2efbc57cf430ec8882765d246929432fa253092f383902329a453", size = 20312, upload-time = "2026-07-24T04:58:42.486Z" },
 ]
 
 [[package]]

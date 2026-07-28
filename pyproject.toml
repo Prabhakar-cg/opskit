@@ -40,6 +40,11 @@ dependencies = [
     # Storage category: cross-platform volume/partition/filesystem enumeration + utilization
     # (no stdlib API covers this on Windows/macOS/Linux uniformly — research R1).
     "psutil>=6,<8",
+    # File category: structured-format read/write (specs/007-file-operations/research.md).
+    "PyYAML>=6,<7",              # YAML load/dump (safe_load/safe_dump only) — R1
+    "tomli-w>=1,<2",             # TOML *writing*; pairs with the existing tomli/tomllib reader — R2
+    "defusedxml>=0.7,<1",        # XXE-safe XML parsing, replacing raw ElementTree — R3
+    "charset-normalizer>=3,<4",  # text-encoding detection — R4
 ]
 
 [project.urls]
@@ -65,6 +70,7 @@ dev = [
     "mypy>=1.11",
     "pyright>=1.1.380",
     "types-psutil>=6",  # community stubs — psutil itself ships no py.typed marker
+    "types-PyYAML>=6; python_version>='3.10'",  # community stubs; requires py3.10+
     # Orchestration/audit tooling runs only on the default (3.12/3.13) CI jobs, never on the
     # Python 3.9 test leg. Scoping them to >=3.10 keeps their transitive deps (pip-audit's
     # requests/urllib3/msgpack, virtualenv's filelock, pip) off the 3.9 resolution, where the
@@ -145,6 +151,13 @@ enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 # typed wrappers (research R9). This override is module-scoped — strictness holds everywhere else.
 [[tool.mypy.overrides]]
 module = "ldap3.*"
+ignore_missing_imports = true
+
+# defusedxml ships no py.typed/stubs; typeshed's types-defusedxml exists but requires
+# Python 3.10+, so this override stays for the project's pyright 3.9 floor. Its use is
+# confined to formats.py's XML load path (specs/007-file-operations/research.md R3).
+[[tool.mypy.overrides]]
+module = "defusedxml.*"
 ignore_missing_imports = true
 
 [tool.pyright]

@@ -1,28 +1,35 @@
 <!--
 SYNC IMPACT REPORT
-Version change: 1.1.0 → 1.2.0
-Amended: 2026-07-04 (ratified 2026-07-01)
-Change: MINOR — materially expanded two principles from lessons on the first category (`dns`):
-  · VII (CLI/API Parity): the exception→exit-code mapping is owned by the error types and `core`
-    stays category-agnostic (no core→category model deps; category rendering lives per category).
-  · IX (Output & Interoperability Contract): batchable commands must process every input, aggregate
-    exit codes (0 all-ok / uniform-class / else PARTIAL), and represent per-item failures in
-    `--json`/`--jsonl` (never dropped). No principles removed or redefined.
+Version change: 1.2.0 → 1.3.0
+Amended: 2026-07-26 (ratified 2026-07-01)
+Change: MINOR — materially expanded Article X to admit a narrow, guarded exception to the
+  read-only charter for local file-utility commands (feature 007 "file operations": line-ending/
+  encoding normalization, JSON/YAML/XML/TOML conversion and pretty-printing). Existing categories
+  (dns/tls/net/ad/storage) remain strictly read-only; unchanged for them. New write-path
+  guarantees added to Art. X: named-target only (no network calls, no unbounded tree mutation),
+  non-destructive by default (stdout/new file unless `--in-place`), atomic + non-clobbering
+  in-place writes (`--backup`/`--force`-equivalent required to overwrite), no content execution,
+  and continued adherence to Arts. VIII (zero telemetry) and IX (output contract). Preamble
+  updated to acknowledge this second command class. No principles removed or redefined.
 Concrete engineering gotchas (Typer+3.9, rich escaping, OS-error normalization, dependency-fix
 hygiene, category-agnostic layout) are captured in CLAUDE.md, not here.
-Principles (unchanged set): I–X (VII and IX expanded)
+Principles (unchanged set): I–X (X expanded)
 Sections:
   - Core Principles (I–X)
   - Security & Supply-Chain Requirements
-  - OpenSSF Scorecard & Best-Practices Baseline   ← added in 1.1.0
+  - OpenSSF Scorecard & Best-Practices Baseline
   - Development Workflow & Quality Gates
   - Governance
 Template consistency:
-  ✅ .specify/templates/plan-template.md   (Constitution Check updated with the OpenSSF gate)
-  ✅ .specify/templates/spec-template.md   (compatible)
-  ✅ .specify/templates/tasks-template.md  (compatible)
+  ✅ .specify/templates/plan-template.md   (Constitution Check line reworded to cover the
+       file-utility write-safety exception alongside the read-only default)
+  ✅ .specify/templates/spec-template.md   (compatible — no read-only-specific language)
+  ✅ .specify/templates/tasks-template.md  (compatible — no read-only-specific language)
 Runtime guidance:
-  ✅ docs/PLAN.md — CI/CD + security decisions align with this baseline
+  ✅ CLAUDE.md — golden rule #4 reworded with the file-utility carve-out
+  ✅ docs/PLAN.md — Art. X summary reworded; decision log appended (2026-07-26)
+  ⚠ README.md — still describes opskit as read-only only; update when feature 007 ships
+       user-facing `opskit file` commands, not before (no such commands exist yet)
 Deferred TODOs: SCORECARD_TOKEN (Branch-Protection full score); bestpractices.dev questionnaire (id 13462)
 -->
 
@@ -30,8 +37,10 @@ Deferred TODOs: SCORECARD_TOKEN (Branch-Protection full score); bestpractices.de
 
 opskit is a cross-platform, pip-installable Python CLI **and** library that gives engineers,
 developers, and operations teams one consistent set of troubleshooting/diagnostic commands
-regardless of operating system. These principles are non-negotiable and are enforced by
-automated gates; every feature is checked against them before it ships.
+regardless of operating system, plus a narrow, guarded set of opt-in local file-utility commands
+(format conversion, line-ending/encoding normalization) that follow the same safety and output
+contracts. These principles are non-negotiable and are enforced by automated gates; every feature
+is checked against them before it ships.
 
 ## Core Principles
 
@@ -107,15 +116,34 @@ dropped from machine output. The JSON schema MUST be published and its changes g
 Principle V. **Gate:** a test walks all commands and asserts these behaviors. **Rationale:**
 composability and automation require a stable, predictable contract that never silently loses data.
 
-### X. Diagnostic-Only Scope (No Misuse)
+### X. Diagnostic-Only Scope & Guarded File Utilities (No Misuse)
 opskit is a **read-only diagnostic/troubleshooting** tool for operators acting on their own
-**authorized** environments. It MUST NOT ship offensive or abuse features — no exploitation,
-no credential brute-forcing/guessing, no mass/range scanning, no traffic interception/spoofing,
-no detection-evasion. Legitimate operator diagnostics (explicit connectivity checks, a temporary
-listener for one's own troubleshooting, read-only directory queries with the operator's own
-credentials) are in scope; anything enabling attack or misuse is out. **Gate:** every feature
-spec is checked against this boundary in the Constitution Check and misuse-enabling capabilities
-are rejected. **Rationale:** opskit is a helper for engineers — explicitly not a hacking tool.
+**authorized** environments, plus a narrow, explicitly-scoped exception for local file-utility
+commands (e.g., line-ending/encoding normalization, JSON/YAML/XML/TOML conversion and
+pretty-printing) that write output. It MUST NOT ship offensive or abuse features — no
+exploitation, no credential brute-forcing/guessing, no mass/range scanning, no traffic
+interception/spoofing, no detection-evasion. Legitimate operator diagnostics (explicit
+connectivity checks, a temporary listener for one's own troubleshooting, read-only directory
+queries with the operator's own credentials) are in scope; anything enabling attack or misuse
+is out.
+
+File-utility commands MUST additionally uphold:
+- **Named-target only:** operate only on files the operator explicitly names (a path, glob, or
+  `--input-file`/stdin list); no unbounded directory-tree mutation beyond an explicit recursive
+  flag the operator opted into. No network calls of any kind.
+- **Non-destructive by default:** output goes to stdout or a new file; modifying the original
+  requires an explicit `--in-place` (or equivalent) opt-in.
+- **Safe in-place writes:** `--in-place` MUST write atomically (temp file + rename) and MUST NOT
+  silently overwrite an unrelated existing file; clobbering requires `--backup` or an explicit
+  `--force`-equivalent opt-in.
+- **No content execution:** file contents are parsed/transformed, never executed or evaluated.
+- The zero-telemetry (Art. VIII) and output-contract (Art. IX) obligations still apply in full.
+
+**Gate:** every feature spec is checked against this boundary in the Constitution Check;
+misuse-enabling capabilities are rejected, and any command that writes to disk must show how it
+satisfies the file-utility guarantees above. **Rationale:** opskit is a helper for engineers —
+explicitly not a hacking tool — and the rare, guarded write path for file utilities must not
+erode that trust or scope-creep into a general-purpose file-mangling tool.
 
 ## Security & Supply-Chain Requirements
 
@@ -200,4 +228,4 @@ one is rejected or requires an explicit, documented justification.
 - **Design source of record:** `docs/PLAN.md` captures the rationale and full decision log behind
   these principles.
 
-**Version**: 1.2.0 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-07-04
+**Version**: 1.3.0 | **Ratified**: 2026-07-01 | **Last Amended**: 2026-07-26

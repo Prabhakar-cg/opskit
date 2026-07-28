@@ -53,7 +53,9 @@ documented justification.
 - [ ] No **dangerous-workflow** patterns (untrusted checkout / unsanitized `github.event.*`).
 - [ ] New dependencies pass `pip-audit` + Snyk; none are EOL/unmaintained; deps stay pinned via lock.
 - [ ] New commands ship **tests** + **docs** (Arts. II, VII) and preserve the output/exit-code contract.
-- [ ] No secrets committed; inputs validated; read-only, zero-telemetry scope preserved (Arts. VIII, X).
+- [ ] No secrets committed; inputs validated; read-only default (or, for guarded file-utility
+      commands, the Art. X write-safety guarantees: named-target only, non-destructive by
+      default, atomic non-clobbering `--in-place`) and zero-telemetry scope preserved (Arts. VIII, X).
 - [ ] Release/packaging path keeps **Trusted Publishing + SBOM + attestations** intact.
 - [ ] `SECURITY.md`, branch protection, and Dependabot remain in force.
 
