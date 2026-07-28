@@ -654,7 +654,9 @@ def test_contracts_python_api_example_runs_as_written(tmp_path, monkeypatch, cap
         print(exc.message, "—", exc.hint)
 
     out = capsys.readouterr().out
-    assert "INVALID @ 1:8" in out
+    # The exact column of a trailing-comma JSON error varies across Python's json module
+    # versions (e.g. 3.9 vs. 3.13) — assert the line, not a version-specific column.
+    assert "INVALID @ 1:" in out
     assert "config.yaml StructuredFormat.YAML OK" in out
     assert "script.sh.bak True" in out
     assert "invalid JSON in config.json" in out

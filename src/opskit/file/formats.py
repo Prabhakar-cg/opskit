@@ -103,12 +103,27 @@ def detect_from_content(text: str) -> StructuredFormat | None:
     return None
 
 
+def _reject_directory(path: Path) -> None:
+    """Raise ``FileNotFoundOnDisk`` up front if ``path`` is a directory.
+
+    Opening a directory for reading raises ``IsADirectoryError`` on POSIX but
+    ``PermissionError`` on Windows (there is no Windows equivalent errno) — checking
+    ``is_dir()`` first keeps the reported error identical on every platform (FR-022) instead
+    of depending on that OS-specific errno mapping.
+    """
+    if path.is_dir():
+        raise FileNotFoundOnDisk(
+            f"not a file: {path}", hint="pass a file path, not a directory"
+        )
+
+
 def read_bytes(path: Path) -> bytes:
     """Read ``path``'s raw bytes, normalizing OS errors into the typed hierarchy.
 
     Shared by every command in this category that needs a file's raw content, not just
     structured-format loading.
     """
+    _reject_directory(path)
     try:
         return path.read_bytes()
     except FileNotFoundError as exc:
@@ -131,6 +146,7 @@ def open_binary(path: Path) -> BinaryIO:
     Shared by every command that scans a file in chunks rather than loading it whole
     (:func:`read_bytes` covers the whole-file case).
     """
+    _reject_directory(path)
     try:
         return path.open("rb")
     except FileNotFoundError as exc:

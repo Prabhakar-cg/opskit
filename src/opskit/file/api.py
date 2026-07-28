@@ -374,6 +374,18 @@ def find_duplicates(
     return tuple(hashing.find_duplicates(directory, recursive=recursive))
 
 
+def _strip_extended_length_prefix(path: str) -> str:
+    r"""Strip Windows' ``\\?\`` extended-length prefix (FR-022 — identical cross-platform output).
+
+    ``Path.readlink()`` on Windows can resolve an absolute symlink target through this
+    internal representation; POSIX targets never carry it, so stripping it keeps
+    ``symlink_target`` directly comparable across platforms rather than leaking a
+    Windows-only implementation detail.
+    """
+    prefix = "\\\\?\\"
+    return path[len(prefix) :] if path.startswith(prefix) else path
+
+
 def _owner_name(uid: int) -> str | None:
     """POSIX username for ``uid``, or ``None`` on Windows / when undeterminable (FR-022)."""
     if _WINDOWS:
@@ -413,7 +425,7 @@ def stat_files(path: str | Path) -> StatResult:
     symlink_target: str | None = None
     if is_symlink:
         try:
-            symlink_target = str(resolved.readlink())
+            symlink_target = _strip_extended_length_prefix(str(resolved.readlink()))
         except OSError:
             symlink_target = None
 
