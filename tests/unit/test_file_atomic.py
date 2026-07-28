@@ -99,3 +99,41 @@ def test_atomic_replace_does_not_leave_temp_file_on_success(tmp_path: Path):
     path.write_text("v1", encoding="utf-8")
     atomic.write_in_place(path, b"v2", backup=False, force=False)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["target.txt"]
+
+
+def test_write_new_file_does_not_leave_temp_file_on_success(tmp_path: Path):
+    path = tmp_path / "out.txt"
+    atomic.write_new_file(path, b"hello", force=False)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["out.txt"]
+
+
+def test_write_new_file_does_not_leave_temp_file_on_clobber_refused(tmp_path: Path):
+    path = tmp_path / "out.txt"
+    path.write_text("already here", encoding="utf-8")
+    with pytest.raises(ClobberRefused):
+        atomic.write_new_file(path, b"replacement", force=False)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["out.txt"]
+
+
+def test_write_new_file_no_force_race_does_not_clobber_concurrent_creation(
+    tmp_path: Path, monkeypatch
+):
+    """A file created between the (removed) exists() check and the write is not clobbered.
+
+    Simulates the TOCTOU window by creating the destination *inside* the temp-file-write
+    step (monkeypatching the internal helper), proving `_create_exclusive`'s atomic
+    create-if-absent — not a preflight `exists()` check — is what prevents the clobber.
+    """
+    path = tmp_path / "out.txt"
+
+    real_write_temp = atomic._write_temp
+
+    def _write_temp_then_race(directory, name, content):
+        tmp_path_ = real_write_temp(directory, name, content)
+        path.write_text("concurrently created", encoding="utf-8")
+        return tmp_path_
+
+    monkeypatch.setattr(atomic, "_write_temp", _write_temp_then_race)
+    with pytest.raises(ClobberRefused):
+        atomic.write_new_file(path, b"replacement", force=False)
+    assert path.read_text(encoding="utf-8") == "concurrently created"

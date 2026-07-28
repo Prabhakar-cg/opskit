@@ -70,7 +70,7 @@ dev = [
     "mypy>=1.11",
     "pyright>=1.1.380",
     "types-psutil>=6",  # community stubs — psutil itself ships no py.typed marker
-    "types-PyYAML>=6",  # community stubs — PyYAML itself ships no py.typed marker
+    "types-PyYAML>=6; python_version>='3.10'",  # community stubs; requires py3.10+
     # Orchestration/audit tooling runs only on the default (3.12/3.13) CI jobs, never on the
     # Python 3.9 test leg. Scoping them to >=3.10 keeps their transitive deps (pip-audit's
     # requests/urllib3/msgpack, virtualenv's filelock, pip) off the 3.9 resolution, where the
@@ -153,8 +153,9 @@ enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 module = "ldap3.*"
 ignore_missing_imports = true
 
-# defusedxml ships no py.typed/stubs (and none exist on typeshed); its use is confined to
-# formats.py's XML load path (specs/007-file-operations/research.md R3).
+# defusedxml ships no py.typed/stubs; typeshed's types-defusedxml exists but requires
+# Python 3.10+, so this override stays for the project's pyright 3.9 floor. Its use is
+# confined to formats.py's XML load path (specs/007-file-operations/research.md R3).
 [[tool.mypy.overrides]]
 module = "defusedxml.*"
 ignore_missing_imports = true

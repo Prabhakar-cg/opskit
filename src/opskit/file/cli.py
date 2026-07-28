@@ -13,7 +13,7 @@ results/exceptions into human or JSON output and structured exit codes.
 import sys
 import time
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Callable, Optional, TypeVar
 
 import typer
 
@@ -65,6 +65,32 @@ def _error_exit(error: OpskitError) -> typer.Exit:
         message += f"\nhint: {error.hint}"
     typer.echo(message, err=True)
     return typer.Exit(int(exit_code_for(error)))
+
+
+_R = TypeVar("_R")
+
+
+def _render_diagnostic_outcomes(
+    outcomes: list[tuple[str, Optional[_R], Optional[OpskitError]]],
+    *,
+    no_color: bool,
+    render_fn: Callable[..., None],
+) -> None:
+    """Shared human-mode rendering for every batchable read-only diagnostic command.
+
+    Each outcome is either a stderr error-with-hint line, or a call to the command's own
+    ``render_fn`` — the pattern ``validate``/``lineendings``/``stat``/``identify``/``hash``/
+    ``encoding`` all share (matching ``_render_eol_outcomes``'s shape for the write commands).
+    """
+    console = make_console(no_color=no_color)
+    for _, result, error in outcomes:
+        if error is not None:
+            message = f"error: {error.message}"
+            if error.hint:
+                message += f"\nhint: {error.hint}"
+            typer.echo(message, err=True)
+        elif result is not None:
+            render_fn(result, console=console)
 
 
 _VALIDATE_EPILOG = """\
@@ -187,15 +213,9 @@ def validate_cmd(
         ]
         emit_envelopes(envelopes, jsonl=jsonl)
     else:
-        console = make_console(no_color=no_color)
-        for _, result, error in outcomes:
-            if error is not None:
-                message = f"error: {error.message}"
-                if error.hint:
-                    message += f"\nhint: {error.hint}"
-                typer.echo(message, err=True)
-            elif result is not None:
-                render_validation(result, console=console)
+        _render_diagnostic_outcomes(
+            outcomes, no_color=no_color, render_fn=render_validation
+        )
 
     codes = [_validate_exit_code(r, e) for _, r, e in outcomes]
     raise typer.Exit(int(aggregate_exit(codes)))
@@ -293,15 +313,9 @@ def lineendings_cmd(
         ]
         emit_envelopes(envelopes, jsonl=jsonl)
     else:
-        console = make_console(no_color=no_color)
-        for _, result, error in outcomes:
-            if error is not None:
-                message = f"error: {error.message}"
-                if error.hint:
-                    message += f"\nhint: {error.hint}"
-                typer.echo(message, err=True)
-            elif result is not None:
-                render_lineendings(result, console=console)
+        _render_diagnostic_outcomes(
+            outcomes, no_color=no_color, render_fn=render_lineendings
+        )
 
     codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
     raise typer.Exit(int(aggregate_exit(codes)))
@@ -357,7 +371,7 @@ def _check_write_flags(*, output: Optional[Path], in_place: bool, backup: bool) 
         raise UsageError("--backup requires --in-place")
 
 
-def _report_write_failure(
+def _report_single_target_failure(
     error: OpskitError,
     *,
     command: str,
@@ -641,7 +655,7 @@ def convert_cmd(
         )
     except OpskitError as error:
         elapsed_ms = (time.perf_counter() - start) * 1000.0
-        _report_write_failure(
+        _report_single_target_failure(
             error,
             command="file.convert",
             query=query,
@@ -767,7 +781,7 @@ def pretty_cmd(
         )
     except OpskitError as error:
         elapsed_ms = (time.perf_counter() - start) * 1000.0
-        _report_write_failure(
+        _report_single_target_failure(
             error,
             command="file.pretty",
             query=query,
@@ -848,7 +862,7 @@ def diff_cmd(
         result = api.diff(left, right, format=format)
     except OpskitError as error:
         elapsed_ms = (time.perf_counter() - start) * 1000.0
-        _report_write_failure(
+        _report_single_target_failure(
             error,
             command="file.diff",
             query=query,
@@ -909,7 +923,7 @@ def duplicates_cmd(
         groups = api.find_duplicates(directory, recursive=recursive)
     except OpskitError as error:
         elapsed_ms = (time.perf_counter() - start) * 1000.0
-        _report_write_failure(
+        _report_single_target_failure(
             error,
             command="file.duplicates",
             query=query,
@@ -1025,15 +1039,7 @@ def stat_cmd(
         ]
         emit_envelopes(envelopes, jsonl=jsonl)
     else:
-        console = make_console(no_color=no_color)
-        for _, result, error in outcomes:
-            if error is not None:
-                message = f"error: {error.message}"
-                if error.hint:
-                    message += f"\nhint: {error.hint}"
-                typer.echo(message, err=True)
-            elif result is not None:
-                render_stat(result, console=console)
+        _render_diagnostic_outcomes(outcomes, no_color=no_color, render_fn=render_stat)
 
     codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
     raise typer.Exit(int(aggregate_exit(codes)))
@@ -1131,15 +1137,9 @@ def identify_cmd(
         ]
         emit_envelopes(envelopes, jsonl=jsonl)
     else:
-        console = make_console(no_color=no_color)
-        for _, result, error in outcomes:
-            if error is not None:
-                message = f"error: {error.message}"
-                if error.hint:
-                    message += f"\nhint: {error.hint}"
-                typer.echo(message, err=True)
-            elif result is not None:
-                render_identify(result, console=console)
+        _render_diagnostic_outcomes(
+            outcomes, no_color=no_color, render_fn=render_identify
+        )
 
     codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
     raise typer.Exit(int(aggregate_exit(codes)))
@@ -1248,15 +1248,9 @@ def hash_cmd(
         ]
         emit_envelopes(envelopes, jsonl=jsonl)
     else:
-        console = make_console(no_color=no_color)
-        for _, result, error in outcomes:
-            if error is not None:
-                message = f"error: {error.message}"
-                if error.hint:
-                    message += f"\nhint: {error.hint}"
-                typer.echo(message, err=True)
-            elif result is not None:
-                render_checksum(result, console=console)
+        _render_diagnostic_outcomes(
+            outcomes, no_color=no_color, render_fn=render_checksum
+        )
 
     codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
     raise typer.Exit(int(aggregate_exit(codes)))
@@ -1354,15 +1348,9 @@ def encoding_cmd(
         ]
         emit_envelopes(envelopes, jsonl=jsonl)
     else:
-        console = make_console(no_color=no_color)
-        for _, result, error in outcomes:
-            if error is not None:
-                message = f"error: {error.message}"
-                if error.hint:
-                    message += f"\nhint: {error.hint}"
-                typer.echo(message, err=True)
-            elif result is not None:
-                render_encoding(result, console=console)
+        _render_diagnostic_outcomes(
+            outcomes, no_color=no_color, render_fn=render_encoding
+        )
 
     codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
     raise typer.Exit(int(aggregate_exit(codes)))
@@ -1464,7 +1452,7 @@ def reencode_cmd(
         )
     except OpskitError as error:
         elapsed_ms = (time.perf_counter() - start) * 1000.0
-        _report_write_failure(
+        _report_single_target_failure(
             error,
             command="file.reencode",
             query=query,

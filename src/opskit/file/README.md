@@ -427,23 +427,25 @@ output (`result: null` + populated `error`).
 ## Use as a Python library
 
 ```python
-from opskit.file import validate, eol, convert, InvalidContent, ClobberRefused
+from opskit.file import (
+    validate, eol, convert, InvalidContent, ClobberRefused, LineEnding, StructuredFormat,
+)
 
 for path in ("config.json", "config.yaml"):
     result = validate(path)
     status = "OK" if result.valid else f"INVALID @ {result.error_line}:{result.error_column}"
     print(result.path, result.format, status)
 
-eol_outcome = eol("script.sh", to="lf", in_place=True, backup=True)
+eol_outcome = eol("script.sh", to=LineEnding.LF, in_place=True, backup=True)
 print(eol_outcome.result.backup_path, eol_outcome.result.lossless)
 
 try:
-    convert("config.json", to="yaml", output="config.yaml")
+    convert("config.json", to=StructuredFormat.YAML, output="config.yaml")
 except InvalidContent as exc:
     print(exc.message, "—", exc.hint)
 
 try:
-    convert("config.json", to="yaml", in_place=True, backup=True)
+    convert("config.json", to=StructuredFormat.YAML, in_place=True, backup=True)
 except ClobberRefused as exc:
     print(exc.message, "—", exc.hint)  # e.g. "pass --force to overwrite it"
 ```

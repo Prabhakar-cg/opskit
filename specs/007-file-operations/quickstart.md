@@ -38,8 +38,8 @@ uv run opskit file convert --help
 | US6 | real difference | change one value, then re-run the diff | reports the specific differing key path and both values |
 | US6 | duplicates | copy a file twice into a scratch directory, then `uv run opskit file duplicates ./scratch` | one group listing all copies |
 | US7 | stat | `uv run opskit file stat config.json` | size/mtime/permissions reported; owner `null` if undeterminable |
-| US7 | programmatic | `uv run python -c "from opskit.file import validate; [print(r.path, r.valid) for r in validate('config.json')]"` | typed results; nothing extra printed |
-| US7 | typed error | `uv run python -c "from opskit.file import convert; convert('missing.json', to='yaml')"` | raises `FileNotFoundOnDisk` |
+| US7 | programmatic | `uv run python -c "from opskit.file import validate; r = validate('config.json'); print(r.path, r.valid)"` | typed result; nothing extra printed |
+| US7 | typed error | `uv run python -c "from opskit.file import convert, StructuredFormat; convert('missing.json', to=StructuredFormat.YAML)"` | raises `FileNotFoundOnDisk` |
 
 ## Deterministic validation (no external-tool dependency — gates CI)
 

@@ -118,7 +118,11 @@ def convert(
         InvalidContent: the source fails to parse as its (detected/declared) format.
         ClobberRefused: `--backup` was requested but `<path>.bak` already exists (and
             `force` is False).
-        UsageError: `to` equals the detected/declared source format.
+        UsageError: `to` equals the detected/declared source format — raised before any
+            file I/O when `format` is passed explicitly (matching the CLI's "usage errors
+            before any file I/O" contract); when `format` is `None`, the source format can
+            only be known by reading and parsing the file first, so the check happens after
+            that unavoidable read in the auto-detect case.
     """
 
 def eol(
@@ -183,23 +187,25 @@ themselves.
 ## Usage example (documented in `file/README.md`; must run as written — SC-006)
 
 ```python
-from opskit.file import validate, eol, convert, InvalidContent, ClobberRefused
+from opskit.file import (
+    validate, eol, convert, InvalidContent, ClobberRefused, LineEnding, StructuredFormat,
+)
 
 for path in ("config.json", "config.yaml"):
     result = validate(path)
     status = "OK" if result.valid else f"INVALID @ {result.error_line}:{result.error_column}"
     print(result.path, result.format, status)
 
-eol_outcome = eol("script.sh", to="lf", in_place=True, backup=True)
+eol_outcome = eol("script.sh", to=LineEnding.LF, in_place=True, backup=True)
 print(eol_outcome.result.backup_path, eol_outcome.result.lossless)
 
 try:
-    convert("config.json", to="yaml", output="config.yaml")
+    convert("config.json", to=StructuredFormat.YAML, output="config.yaml")
 except InvalidContent as exc:
     print(exc.message, "—", exc.hint)
 
 try:
-    convert("config.json", to="yaml", in_place=True, backup=True)
+    convert("config.json", to=StructuredFormat.YAML, in_place=True, backup=True)
 except ClobberRefused as exc:
     print(exc.message, "—", exc.hint)  # e.g. "pass --force to overwrite config.json.bak"
 ```

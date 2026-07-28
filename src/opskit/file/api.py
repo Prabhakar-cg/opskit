@@ -19,7 +19,12 @@ from typing import NamedTuple
 
 from opskit.core.errors import UsageError
 from opskit.file import atomic, diffing, formats, hashing, sniff, textstats
-from opskit.file.errors import FileNotFoundOnDisk, FilePermissionDenied, InvalidContent
+from opskit.file.errors import (
+    FileError,
+    FileNotFoundOnDisk,
+    FilePermissionDenied,
+    InvalidContent,
+)
 from opskit.file.models import (
     ChecksumResult,
     ConversionResult,
@@ -49,13 +54,24 @@ class WriteOutcome(NamedTuple):
 
 
 def _validate_write_destination(
-    *, output: str | Path | None, in_place: bool, backup: bool
+    *, source: Path, output: str | Path | None, in_place: bool, backup: bool
 ) -> None:
-    """Shared usage-level validation for every guarded write command (FR-014, FR-015)."""
+    """Shared usage-level validation for every guarded write command (FR-014, FR-015).
+
+    Rejects an ``--output`` that resolves to the source itself (same path, or a symlink/
+    relative-path alias of it) — without this, ``--output <source> --force`` would silently
+    overwrite the source while reporting ``in_place=False``, bypassing the explicit
+    ``--in-place`` opt-in the non-destructive-by-default guarantee depends on.
+    """
     if in_place and output is not None:
         raise UsageError("--output and --in-place are mutually exclusive")
     if backup and not in_place:
         raise UsageError("--backup requires --in-place")
+    if output is not None and Path(output).resolve() == source.resolve():
+        raise UsageError(
+            "--output resolves to the source file",
+            hint="use --in-place (with --backup, optionally) to modify the source file",
+        )
 
 
 def validate(
@@ -170,9 +186,19 @@ def eol(
             destination/backup, failed.
         ClobberRefused: ``backup`` was requested but ``<path>.bak`` already exists (or
             ``output`` already exists), and ``force`` was not passed.
+        UsageError: ``to`` is not one of ``LineEnding``'s values.
     """
-    _validate_write_destination(output=output, in_place=in_place, backup=backup)
     source = Path(path)
+    _validate_write_destination(
+        source=source, output=output, in_place=in_place, backup=backup
+    )
+    try:
+        to = LineEnding(to)
+    except ValueError:
+        raise UsageError(
+            f"unsupported line-ending style: {to}",
+            hint="choose one of: " + ", ".join(e.value for e in LineEnding),
+        ) from None
     content = formats.read_bytes(source)
     normalized = textstats.normalize_line_endings(content, to)
     return _write_guarded(
@@ -203,10 +229,18 @@ def convert(
         InvalidContent: the source fails to parse as its (detected/declared) format.
         ClobberRefused: ``backup`` was requested but ``<path>.bak`` already exists (or
             ``output`` already exists), and ``force`` was not passed.
-        UsageError: ``to`` equals the detected/declared source format.
+        UsageError: ``to`` equals the detected/declared source format — raised before any
+            file I/O when ``format`` is given explicitly; when it isn't, the source format
+            can only be known by reading and parsing the file first (auto-detection).
     """
-    _validate_write_destination(output=output, in_place=in_place, backup=backup)
     source = Path(path)
+    _validate_write_destination(
+        source=source, output=output, in_place=in_place, backup=backup
+    )
+    if format is not None and to is format:
+        raise UsageError(
+            f"source is already {to.value}; --to must differ from the source format"
+        )
     loaded = formats.load(source, format=format)
     if to is loaded.format:
         raise UsageError(
@@ -245,8 +279,10 @@ def pretty(
         ClobberRefused: as :func:`convert`.
         UsageError: the (detected/declared) format is TOML — its layout is already canonical.
     """
-    _validate_write_destination(output=output, in_place=in_place, backup=backup)
     source = Path(path)
+    _validate_write_destination(
+        source=source, output=output, in_place=in_place, backup=backup
+    )
     loaded = formats.load(source, format=format)
     if loaded.format is StructuredFormat.TOML:
         raise UsageError(
@@ -328,8 +364,10 @@ def reencode(
             ``output`` already exists), and ``force`` was not passed.
         UsageError: ``from_``/``to`` names an unknown codec.
     """
-    _validate_write_destination(output=output, in_place=in_place, backup=backup)
     source = Path(path)
+    _validate_write_destination(
+        source=source, output=output, in_place=in_place, backup=backup
+    )
     content = formats.read_bytes(source)
     transcoded = textstats.transcode(content, from_encoding=from_, to_encoding=to)
     return _write_guarded(
@@ -410,6 +448,7 @@ def stat_files(path: str | Path) -> StatResult:
     Raises:
         FileNotFoundOnDisk: ``path`` does not exist.
         FilePermissionDenied: ``path`` could not be inspected.
+        FileError: any other OS-level failure inspecting ``path`` or its symlink target.
     """
     resolved = Path(path)
     try:
@@ -420,14 +459,18 @@ def stat_files(path: str | Path) -> StatResult:
         ) from exc
     except PermissionError as exc:
         raise FilePermissionDenied(f"permission denied: {resolved}") from exc
+    except OSError as exc:
+        raise FileError(f"cannot stat {resolved}: {exc}") from exc
 
     is_symlink = stat_module.S_ISLNK(st.st_mode)
     symlink_target: str | None = None
     if is_symlink:
         try:
             symlink_target = _strip_extended_length_prefix(str(resolved.readlink()))
-        except OSError:
-            symlink_target = None
+        except OSError as exc:
+            raise FileError(
+                f"cannot read symlink target for {resolved}: {exc}"
+            ) from exc
 
     permissions = (
         None if _WINDOWS else oct(stat_module.S_IMODE(st.st_mode))[2:].zfill(3)

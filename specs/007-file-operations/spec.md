@@ -255,12 +255,18 @@ programmatically, read the typed result, and catch a typed error for an induced 
 
 - **Target path does not exist, is a directory where a file is expected, or is unreadable**:
   reported as a distinct failure for that target, never crashing the batch or silently skipping it.
-- **Empty file**: diagnostics report it as empty rather than erroring; conversions/normalizations
-  of an empty file succeed and produce an empty (but validly-formatted, where applicable) result.
+- **Empty file**: format-agnostic diagnostics (`lineendings`, `encoding`, `identify`, `hash`,
+  `stat`) and normalizations (`eol`, `reencode`) report/operate on it as an empty byte stream
+  rather than erroring — they never need to parse it as structured data. Structured-format
+  operations (`validate`/`convert`/`pretty`/`diff`) succeed only where the (detected/declared)
+  format has a canonical empty document: YAML (`null`) and TOML (an empty table) both parse an
+  empty file successfully; JSON and XML have no valid empty-document representation, so an empty
+  file declared or detected as either raises `InvalidContent`, the same outcome any other
+  unparseable content produces — not a special case.
 - **File larger than available memory allows to process at once**: hashing and line-ending
-  detection stream the file rather than loading it wholesale; very large structured files may be
-  limited by the parser's own memory needs, and such limits are surfaced as an actionable error
-  rather than an unhandled crash.
+  detection stream the file rather than loading it wholesale; unusually large structured files
+  may be limited by the parser's own memory needs, and such limits are surfaced as an actionable
+  error rather than an unhandled crash.
 - **`--in-place` requested on a read-only file or a path without write permission**: fails with an
   actionable permission error; the original file is left untouched.
 - **`--in-place` without `--backup`, and the process is interrupted mid-write**: the atomic

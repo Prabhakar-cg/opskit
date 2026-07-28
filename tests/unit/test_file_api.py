@@ -13,7 +13,12 @@ from hypothesis import strategies as st
 
 from opskit.core.errors import UsageError
 from opskit.file import api
-from opskit.file.errors import ClobberRefused, FileNotFoundOnDisk, InvalidContent
+from opskit.file.errors import (
+    ClobberRefused,
+    FileError,
+    FileNotFoundOnDisk,
+    InvalidContent,
+)
 from opskit.file.models import MISSING, LineEnding, StructuredFormat
 
 
@@ -136,11 +141,46 @@ def test_eol_output_and_in_place_is_usage_error(tmp_path: Path):
         api.eol(path, to=LineEnding.LF, output=tmp_path / "out.txt", in_place=True)
 
 
+def test_eol_output_equal_to_source_is_usage_error(tmp_path: Path):
+    """--output resolving to the source must be rejected, even with --force (SC-002)."""
+    path = tmp_path / "mixed.txt"
+    original = b"a\r\nb\n"
+    path.write_bytes(original)
+    with pytest.raises(UsageError):
+        api.eol(path, to=LineEnding.LF, output=path, force=True)
+    assert path.read_bytes() == original
+
+
+def test_eol_output_relative_alias_of_source_is_usage_error(tmp_path: Path, monkeypatch):
+    """A different-looking but same-resolved-path --output is caught too, not just str equality."""
+    path = tmp_path / "mixed.txt"
+    path.write_bytes(b"a\n")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(UsageError):
+        api.eol("mixed.txt", to=LineEnding.LF, output="./mixed.txt", force=True)
+
+
 def test_eol_backup_without_in_place_is_usage_error(tmp_path: Path):
     path = tmp_path / "mixed.txt"
     path.write_bytes(b"a\n")
     with pytest.raises(UsageError):
         api.eol(path, to=LineEnding.LF, backup=True)
+
+
+@pytest.mark.parametrize(("to", "expected"), [("lf", b"a\nb\n"), ("crlf", b"a\r\nb\r\n")])
+def test_eol_coerces_valid_string_to_line_ending(tmp_path: Path, to: str, expected: bytes):
+    """A raw string `to=` value is coerced to the matching `LineEnding`, not silently LF."""
+    path = tmp_path / "mixed.txt"
+    path.write_bytes(b"a\r\nb\n")
+    outcome = api.eol(path, to=to)  # type: ignore[arg-type]
+    assert outcome.stdout_content == expected
+
+
+def test_eol_unsupported_string_is_usage_error(tmp_path: Path):
+    path = tmp_path / "mixed.txt"
+    path.write_bytes(b"a\n")
+    with pytest.raises(UsageError):
+        api.eol(path, to="bogus")  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +273,16 @@ def test_convert_same_format_is_usage_error(tmp_path: Path):
     path.write_text('{"a": 1}', encoding="utf-8")
     with pytest.raises(UsageError):
         api.convert(path, to=StructuredFormat.JSON)
+
+
+def test_convert_explicit_same_format_is_usage_error_before_any_io(tmp_path: Path):
+    """With an explicit --format, the same-format check must precede source I/O entirely."""
+    with pytest.raises(UsageError):
+        api.convert(
+            tmp_path / "does-not-exist.json",
+            to=StructuredFormat.JSON,
+            format=StructuredFormat.JSON,
+        )
 
 
 def test_convert_invalid_source_raises_invalid_content(tmp_path: Path):
@@ -444,6 +494,30 @@ def test_reencode_output_and_in_place_is_usage_error(tmp_path: Path):
         api.reencode(path, to="utf-8", output=tmp_path / "out.txt", in_place=True)
 
 
+def test_convert_output_equal_to_source_is_usage_error(tmp_path: Path):
+    """--output resolving to the source must be rejected, even with --force (SC-002)."""
+    path = tmp_path / "config.json"
+    original = b'{"a": 1}'
+    path.write_bytes(original)
+    with pytest.raises(UsageError):
+        api.convert(path, to=StructuredFormat.YAML, output=path, force=True)
+    assert path.read_bytes() == original
+
+
+def test_convert_output_symlink_alias_of_source_is_usage_error(tmp_path: Path):
+    path = tmp_path / "config.json"
+    original = b'{"a": 1}'
+    path.write_bytes(original)
+    alias = tmp_path / "alias.json"
+    try:
+        alias.symlink_to(path)
+    except OSError:
+        pytest.skip("symlinks not supported in this environment")
+    with pytest.raises(UsageError):
+        api.convert(path, to=StructuredFormat.YAML, output=alias, force=True)
+    assert path.read_bytes() == original
+
+
 def test_diff_reformatted_yaml_is_equivalent(tmp_path: Path):
     left = tmp_path / "left.yaml"
     right = tmp_path / "right.yaml"
@@ -613,6 +687,35 @@ def test_stat_files_missing_raises_not_found(tmp_path: Path):
         api.stat_files(tmp_path / "nope.bin")
 
 
+def test_stat_files_other_lstat_oserror_is_normalized(tmp_path: Path, monkeypatch):
+    path = tmp_path / "data.bin"
+    path.write_bytes(b"data")
+
+    def _raise(self):
+        raise OSError("simulated device error")
+
+    monkeypatch.setattr(Path, "lstat", _raise)
+    with pytest.raises(FileError):
+        api.stat_files(path)
+
+
+def test_stat_files_readlink_oserror_is_normalized(tmp_path: Path, monkeypatch):
+    target = tmp_path / "real.txt"
+    target.write_bytes(b"content")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks not supported in this environment")
+
+    def _raise(self):
+        raise OSError("simulated readlink failure")
+
+    monkeypatch.setattr(Path, "readlink", _raise)
+    with pytest.raises(FileError):
+        api.stat_files(link)
+
+
 def test_contracts_python_api_example_runs_as_written(tmp_path, monkeypatch, capsys):
     """The exact usage example from contracts/python-api.md, executed unmodified.
 
@@ -626,7 +729,15 @@ def test_contracts_python_api_example_runs_as_written(tmp_path, monkeypatch, cap
     (tmp_path / "config.yaml").write_text("a: 1\n", encoding="utf-8")
     (tmp_path / "script.sh").write_text("echo hi\r\n", encoding="utf-8")
 
-    from opskit.file import ClobberRefused, InvalidContent, convert, eol, validate
+    from opskit.file import (
+        ClobberRefused,
+        InvalidContent,
+        LineEnding,
+        StructuredFormat,
+        convert,
+        eol,
+        validate,
+    )
 
     for path in ("config.json", "config.yaml"):
         result = validate(path)
@@ -637,11 +748,11 @@ def test_contracts_python_api_example_runs_as_written(tmp_path, monkeypatch, cap
         )
         print(result.path, result.format, status)
 
-    eol_outcome = eol("script.sh", to="lf", in_place=True, backup=True)
+    eol_outcome = eol("script.sh", to=LineEnding.LF, in_place=True, backup=True)
     print(eol_outcome.result.backup_path, eol_outcome.result.lossless)
 
     try:
-        convert("config.json", to="yaml", output="config.yaml")
+        convert("config.json", to=StructuredFormat.YAML, output="config.yaml")
     except InvalidContent as exc:
         print(exc.message, "—", exc.hint)
 
@@ -649,7 +760,7 @@ def test_contracts_python_api_example_runs_as_written(tmp_path, monkeypatch, cap
     (tmp_path / "config.json.bak").write_text("stale backup", encoding="utf-8")
 
     try:
-        convert("config.json", to="yaml", in_place=True, backup=True)
+        convert("config.json", to=StructuredFormat.YAML, in_place=True, backup=True)
     except ClobberRefused as exc:
         print(exc.message, "—", exc.hint)
 

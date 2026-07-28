@@ -44,7 +44,7 @@ files the operator explicitly targets.
 | Field | Type | Notes |
 |-------|------|-------|
 | `path` | `str` | |
-| `format` | `StructuredFormat` | detected or declared (FR-003) |
+| `format` | `StructuredFormat \| None` | detected or declared; `None` only when the format couldn't be determined at all (no extension/content match) — itself reported as `valid=False`, not raised (FR-003) |
 | `valid` | `bool` | |
 | `error_line` / `error_column` | `int \| None` | populated only when `valid is False` and the parser reports a location |
 | `error_message` | `str \| None` | populated only when `valid is False` |

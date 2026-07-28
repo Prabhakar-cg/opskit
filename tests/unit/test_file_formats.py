@@ -143,6 +143,34 @@ def test_load_undetectable_content_raises_invalid_content(tmp_path: Path):
         formats.load(path)
 
 
+def test_load_empty_yaml_succeeds_as_null(tmp_path: Path):
+    path = tmp_path / "empty.yaml"
+    path.write_text("", encoding="utf-8")
+    result = formats.load(path)
+    assert result.data is None
+
+
+def test_load_empty_toml_succeeds_as_empty_table(tmp_path: Path):
+    path = tmp_path / "empty.toml"
+    path.write_text("", encoding="utf-8")
+    result = formats.load(path)
+    assert result.data == {}
+
+
+def test_load_empty_json_raises_invalid_content(tmp_path: Path):
+    path = tmp_path / "empty.json"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(InvalidContent):
+        formats.load(path)
+
+
+def test_load_empty_xml_raises_invalid_content(tmp_path: Path):
+    path = tmp_path / "empty.xml"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(InvalidContent):
+        formats.load(path)
+
+
 # ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
