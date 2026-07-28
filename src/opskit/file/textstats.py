@@ -163,14 +163,23 @@ def detect_encoding_bytes(raw: bytes, *, path: str = "") -> EncodingReport:
     )
 
 
-def detect_encoding(path: str | Path) -> EncodingReport:
+def detect_encoding(
+    path: str | Path, *, sample_size: int = _CHUNK_SIZE
+) -> EncodingReport:
     """Detect ``path``'s text encoding, BOM presence, and invalid-sequence flag (FR-002).
+
+    Reads only the first ``sample_size`` bytes (1 MiB by default) rather than the whole
+    file, so a read-only detection stays memory-bounded regardless of file size — the
+    reported ``confidence``/``invalid_sequences`` therefore reflect that sampled prefix, not
+    necessarily bytes beyond it. (:func:`transcode` still reads the full file, since it
+    genuinely needs every byte to produce the transcoded output.)
 
     Raises:
         FileNotFoundOnDisk / FilePermissionDenied: the file could not be read.
     """
     resolved = Path(path)
-    raw = formats.read_bytes(resolved)
+    with formats.open_binary(resolved) as handle:
+        raw = handle.read(sample_size)
     return detect_encoding_bytes(raw, path=str(path))
 
 

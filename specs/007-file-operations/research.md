@@ -81,6 +81,17 @@ silently reformatted.
 - *Suppressing `S314` with a documented `# nosec`*: rejected per CLAUDE.md's explicit guidance to
   fix security findings at the root rather than annotate around them.
 
+**As-built addendum**: the initial implementation dropped the root element's own tag entirely
+(`xml_to_data` only preserves *child* tags, since the parent captures those as dict keys — the
+root has no parent to do that for it) and `formats.dump()`'s XML branch hardcoded the
+reconstructed root as `"root"`. This silently renamed a document root on every XML→XML
+round-trip (`pretty`, or a same-format `convert`) while still reporting `lossless: true` — a
+real bug, not a documented trade-off like mixed content/namespace-prefix collapsing above.
+Fixed by capturing `root.tag` directly in `formats._load_xml` (which already holds the
+top-level `Element`, so `xml_to_data`'s own signature didn't need to change) and threading it
+through `LoadResult.xml_root_tag` → `dump(..., xml_root_tag=...)`, defaulting to `"root"` only
+when the source wasn't XML to begin with (there's no original tag to preserve in that case).
+
 ## R4. Text-encoding detection
 
 **Decision**: Add **`charset-normalizer`** (`charset-normalizer>=3,<4`) as a new base runtime

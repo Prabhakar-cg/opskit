@@ -93,6 +93,42 @@ def test_xml_dump_round_trips_simple_structure(tmp_path: Path):
     assert reloaded.data == data
 
 
+def test_xml_load_captures_root_tag(tmp_path: Path):
+    path = tmp_path / "config.xml"
+    path.write_bytes(b"<config><name>svc</name></config>")
+    result = formats.load(path)
+    assert result.xml_root_tag == "config"
+
+
+def test_xml_load_non_xml_format_has_no_root_tag(tmp_path: Path):
+    path = tmp_path / "config.json"
+    path.write_text('{"a": 1}', encoding="utf-8")
+    result = formats.load(path)
+    assert result.xml_root_tag is None
+
+
+def test_xml_dump_default_root_tag_without_explicit_tag():
+    dumped = formats.dump({"a": "1"}, StructuredFormat.XML)
+    assert dumped.content.startswith(b"<?xml") and b"<root>" in dumped.content
+
+
+def test_xml_dump_preserves_explicit_root_tag():
+    dumped = formats.dump({"name": "svc"}, StructuredFormat.XML, xml_root_tag="config")
+    assert b"<config>" in dumped.content
+    assert b"<root>" not in dumped.content
+
+
+def test_xml_pretty_round_trip_preserves_root_tag(tmp_path: Path):
+    """A `pretty`-style XML->XML round-trip must not silently rename the root element."""
+    path = tmp_path / "config.xml"
+    path.write_bytes(b"<config><name>svc</name></config>")
+    loaded = formats.load(path)
+    dumped = formats.dump(loaded.data, loaded.format, xml_root_tag=loaded.xml_root_tag)
+    reloaded_path = _write(tmp_path, "out.xml", dumped.content)
+    reloaded = formats.load(reloaded_path)
+    assert reloaded.xml_root_tag == "config"
+
+
 # ---------------------------------------------------------------------------
 # Format detection
 # ---------------------------------------------------------------------------

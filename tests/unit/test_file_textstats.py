@@ -209,6 +209,39 @@ def test_detect_encoding_missing_file_raises(tmp_path: Path):
         textstats.detect_encoding(tmp_path / "nope.txt")
 
 
+def test_detect_encoding_is_memory_bounded_on_large_file(tmp_path: Path):
+    """detect_encoding() must not read the whole file — only a bounded sample."""
+    path = tmp_path / "large.txt"
+    path.write_bytes(b"\xef\xbb\xbf" + b"a" * 10_000)
+
+    report = textstats.detect_encoding(path, sample_size=16)
+
+    assert report.encoding == "utf-8-sig"
+
+
+def test_detect_encoding_sample_size_limits_bytes_read(tmp_path: Path, monkeypatch):
+    path = tmp_path / "large.txt"
+    path.write_bytes(b"a" * 10_000)
+
+    read_sizes: list[int] = []
+    real_open_binary = textstats.formats.open_binary
+
+    def _tracking_open_binary(p):
+        handle = real_open_binary(p)
+        real_read = handle.read
+
+        def _tracking_read(size=-1):
+            read_sizes.append(size)
+            return real_read(size)
+
+        handle.read = _tracking_read  # type: ignore[method-assign]
+        return handle
+
+    monkeypatch.setattr(textstats.formats, "open_binary", _tracking_open_binary)
+    textstats.detect_encoding(path, sample_size=64)
+    assert read_sizes == [64]
+
+
 # ---------------------------------------------------------------------------
 # transcode() (research R4, FR-012)
 # ---------------------------------------------------------------------------

@@ -24,7 +24,9 @@ def _write_temp(directory: Path, name: str, content: bytes) -> Path:
     rename/link is not guaranteed atomic (or even supported) anywhere.
     """
     try:
-        fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{name}.", suffix=".tmp")
+        fd, tmp_name = tempfile.mkstemp(
+            dir=directory, prefix=f".{name}.", suffix=".tmp"
+        )
     except OSError as exc:
         raise FilePermissionDenied(
             f"cannot create a temp file in {directory}: {exc}"

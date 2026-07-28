@@ -246,7 +246,7 @@ def convert(
         raise UsageError(
             f"source is already {to.value}; --to must differ from the source format"
         )
-    dumped = formats.dump(loaded.data, to)
+    dumped = formats.dump(loaded.data, to, xml_root_tag=loaded.xml_root_tag)
     return _write_guarded(
         source,
         dumped.content,
@@ -290,7 +290,11 @@ def pretty(
             hint="its layout is already canonical",
         )
     dumped = formats.dump(
-        loaded.data, loaded.format, indent=indent, sort_keys=sort_keys
+        loaded.data,
+        loaded.format,
+        indent=indent,
+        sort_keys=sort_keys,
+        xml_root_tag=loaded.xml_root_tag,
     )
     return _write_guarded(
         source,

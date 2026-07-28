@@ -51,12 +51,19 @@ EXTENSION_FORMATS: dict[str, StructuredFormat] = {
 
 
 class LoadResult(NamedTuple):
-    """The outcome of :func:`load`."""
+    """The outcome of :func:`load`.
+
+    ``xml_root_tag`` is the source's root element tag when ``format`` is XML, else ``None``.
+    Threading it through to :func:`dump`'s ``xml_root_tag`` is what lets an XML→XML
+    round-trip (``pretty``, or a same-format ``convert``) preserve the original root element
+    name instead of always rebuilding it as ``dump()``'s default (research R3 addendum).
+    """
 
     data: object
     format: StructuredFormat
     lossless: bool
     lossy_reason: str | None
+    xml_root_tag: str | None = None
 
 
 class DumpResult(NamedTuple):
@@ -117,6 +124,25 @@ def _reject_directory(path: Path) -> None:
         )
 
 
+def _normalize_read_error(path: Path, exc: OSError) -> FileError:
+    """Map a raw ``OSError`` from reading/opening ``path`` onto the typed hierarchy.
+
+    Shared by :func:`read_bytes` and :func:`open_binary` so the mapping (and any future
+    refinement of it) is implemented exactly once.
+    """
+    if isinstance(exc, FileNotFoundError):
+        return FileNotFoundOnDisk(
+            f"file not found: {path}", hint="check the path and try again"
+        )
+    if isinstance(exc, IsADirectoryError):
+        return FileNotFoundOnDisk(
+            f"not a file: {path}", hint="pass a file path, not a directory"
+        )
+    if isinstance(exc, PermissionError):
+        return FilePermissionDenied(f"permission denied reading {path}")
+    return FileError(f"cannot read {path}: {exc}")
+
+
 def read_bytes(path: Path) -> bytes:
     """Read ``path``'s raw bytes, normalizing OS errors into the typed hierarchy.
 
@@ -126,18 +152,8 @@ def read_bytes(path: Path) -> bytes:
     _reject_directory(path)
     try:
         return path.read_bytes()
-    except FileNotFoundError as exc:
-        raise FileNotFoundOnDisk(
-            f"file not found: {path}", hint="check the path and try again"
-        ) from exc
-    except IsADirectoryError as exc:
-        raise FileNotFoundOnDisk(
-            f"not a file: {path}", hint="pass a file path, not a directory"
-        ) from exc
-    except PermissionError as exc:
-        raise FilePermissionDenied(f"permission denied reading {path}") from exc
     except OSError as exc:
-        raise FileError(f"cannot read {path}: {exc}") from exc
+        raise _normalize_read_error(path, exc) from exc
 
 
 def open_binary(path: Path) -> BinaryIO:
@@ -149,18 +165,8 @@ def open_binary(path: Path) -> BinaryIO:
     _reject_directory(path)
     try:
         return path.open("rb")
-    except FileNotFoundError as exc:
-        raise FileNotFoundOnDisk(
-            f"file not found: {path}", hint="check the path and try again"
-        ) from exc
-    except IsADirectoryError as exc:
-        raise FileNotFoundOnDisk(
-            f"not a file: {path}", hint="pass a file path, not a directory"
-        ) from exc
-    except PermissionError as exc:
-        raise FilePermissionDenied(f"permission denied reading {path}") from exc
     except OSError as exc:
-        raise FileError(f"cannot read {path}: {exc}") from exc
+        raise _normalize_read_error(path, exc) from exc
 
 
 def _decode_text(raw: bytes, path: Path) -> str:
@@ -219,7 +225,7 @@ def _load_toml(text: str, path: Path) -> tuple[object, bool, str | None]:
     return data, True, None
 
 
-def _load_xml(raw: bytes, path: Path) -> tuple[object, bool, str | None]:
+def _load_xml(raw: bytes, path: Path) -> tuple[object, bool, str | None, str]:
     try:
         root = DefusedET.fromstring(raw)
     except DefusedXmlException as exc:
@@ -237,7 +243,7 @@ def _load_xml(raw: bytes, path: Path) -> tuple[object, bool, str | None]:
         if not lossless
         else None
     )
-    return data, lossless, reason
+    return data, lossless, reason, root.tag
 
 
 def load(path: str | Path, *, format: StructuredFormat | None = None) -> LoadResult:
@@ -262,8 +268,8 @@ def load(path: str | Path, *, format: StructuredFormat | None = None) -> LoadRes
             )
 
     if resolved_format is StructuredFormat.XML:
-        data, lossless, reason = _load_xml(raw, resolved_path)
-        return LoadResult(data, resolved_format, lossless, reason)
+        data, lossless, reason, root_tag = _load_xml(raw, resolved_path)
+        return LoadResult(data, resolved_format, lossless, reason, root_tag)
 
     text = _decode_text(raw, resolved_path)
     if resolved_format is StructuredFormat.JSON:
@@ -304,14 +310,24 @@ def _check_json_safe(data: object) -> tuple[bool, str | None]:
     return False, "; ".join(sorted(reasons))
 
 
+_DEFAULT_XML_ROOT_TAG = "root"
+
+
 def dump(
     data: object,
     format: StructuredFormat,
     *,
     indent: int = 2,
     sort_keys: bool = False,
+    xml_root_tag: str | None = None,
 ) -> DumpResult:
     """Serialize ``data`` to ``format``, reporting whether the result is lossless (FR-018).
+
+    ``xml_root_tag`` names the root element when ``format`` is XML — pass
+    ``LoadResult.xml_root_tag`` through on an XML→XML round-trip (``pretty``, or a
+    same-format ``convert``) to preserve the source's original root tag; ``None`` (e.g.
+    converting a non-XML source to XML, which has no original root tag to preserve) falls
+    back to the documented default, ``"root"``.
 
     Raises:
         InvalidContent: ``data`` cannot be represented in ``format`` at all (e.g. a non-mapping
@@ -354,7 +370,7 @@ def dump(
         return DumpResult(content, True, None)
 
     # XML
-    root = xml_convert.data_to_xml(data, "root")
+    root = xml_convert.data_to_xml(data, xml_root_tag or _DEFAULT_XML_ROOT_TAG)
     xml_indent(root, space=" " * indent)
     content = xml_tostring(root, encoding="utf-8", xml_declaration=True)
     return DumpResult(content, True, None)

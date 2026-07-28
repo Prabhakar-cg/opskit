@@ -151,7 +151,9 @@ def test_eol_output_equal_to_source_is_usage_error(tmp_path: Path):
     assert path.read_bytes() == original
 
 
-def test_eol_output_relative_alias_of_source_is_usage_error(tmp_path: Path, monkeypatch):
+def test_eol_output_relative_alias_of_source_is_usage_error(
+    tmp_path: Path, monkeypatch
+):
     """A different-looking but same-resolved-path --output is caught too, not just str equality."""
     path = tmp_path / "mixed.txt"
     path.write_bytes(b"a\n")
@@ -167,8 +169,12 @@ def test_eol_backup_without_in_place_is_usage_error(tmp_path: Path):
         api.eol(path, to=LineEnding.LF, backup=True)
 
 
-@pytest.mark.parametrize(("to", "expected"), [("lf", b"a\nb\n"), ("crlf", b"a\r\nb\r\n")])
-def test_eol_coerces_valid_string_to_line_ending(tmp_path: Path, to: str, expected: bytes):
+@pytest.mark.parametrize(
+    ("to", "expected"), [("lf", b"a\nb\n"), ("crlf", b"a\r\nb\r\n")]
+)
+def test_eol_coerces_valid_string_to_line_ending(
+    tmp_path: Path, to: str, expected: bytes
+):
     """A raw string `to=` value is coerced to the matching `LineEnding`, not silently LF."""
     path = tmp_path / "mixed.txt"
     path.write_bytes(b"a\r\nb\n")
@@ -350,6 +356,17 @@ def test_pretty_in_place_rewrites_source(tmp_path: Path):
     api.pretty(path, in_place=True, indent=4)
 
     assert path.read_text(encoding="utf-8") == json.dumps({"a": 1, "b": 2}, indent=4)
+
+
+def test_pretty_xml_preserves_root_tag(tmp_path: Path):
+    """Pretty-printing XML must not silently rename its root element to <root> (data integrity)."""
+    path = tmp_path / "config.xml"
+    path.write_bytes(b"<config><name>svc</name></config>")
+
+    api.pretty(path, in_place=True)
+
+    assert b"<config>" in path.read_bytes()
+    assert b"<root>" not in path.read_bytes()
 
 
 # ---------------------------------------------------------------------------

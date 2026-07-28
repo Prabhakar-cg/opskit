@@ -363,6 +363,10 @@ formats:
   attributes/children collapses to that text value directly.
 - Namespaces are preserved verbatim in tag/attribute names using Clark notation (`{uri}local`)
   rather than resolved against declared prefixes.
+- The **root element's own tag** is preserved on an XML→XML round-trip (`pretty`, or a
+  same-format `convert`) rather than replaced with a generic default — pretty-printing
+  `<config>...</config>` keeps `<config>`, it never becomes `<root>`. Converting a *non*-XML
+  source to XML (which has no original root tag to preserve) names the root `root`.
 
 Mixed content (text interleaved with child elements at arbitrary positions) and multiple
 namespace prefixes mapping to the same URI are the two shapes this convention can't losslessly
