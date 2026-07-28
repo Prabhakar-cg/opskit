@@ -18,8 +18,12 @@ from opskit.file.errors import (
 from opskit.file.models import (
     ChecksumResult,
     ConversionResult,
+    DiffEntry,
+    DuplicateGroup,
     EncodingReport,
     IdentificationResult,
+    StatResult,
+    StructuralDiffResult,
     StructuredFormat,
     ValidationResult,
 )
@@ -749,3 +753,224 @@ def test_reencode_human_output_error_no_json_mixing(monkeypatch):
     result = runner.invoke(app, ["file", "reencode", "missing.txt", "--to", "utf-8"])
     assert result.exit_code == 16
     assert "missing.txt" in result.output
+
+
+def _diff_result(left="left.json", right="right.json", differences=()):
+    return StructuralDiffResult(
+        left_path=left, right_path=right, differences=differences
+    )
+
+
+def test_diff_json_envelope_equivalent(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.diff", lambda left, right, **kw: _diff_result()
+    )
+    result = runner.invoke(app, ["file", "diff", "left.json", "right.json", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.diff"
+    assert payload["result"]["equivalent"] is True
+    assert payload["result"]["differences"] == []
+
+
+def test_diff_json_envelope_with_differences(monkeypatch):
+    entry = DiffEntry(key_path="server.port", left_value=80, right_value=443)
+    monkeypatch.setattr(
+        "opskit.file.cli.api.diff",
+        lambda left, right, **kw: _diff_result(differences=(entry,)),
+    )
+    result = runner.invoke(app, ["file", "diff", "left.json", "right.json", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["result"]["equivalent"] is False
+    assert payload["result"]["differences"][0]["key_path"] == "server.port"
+    assert payload["result"]["differences"][0]["left"] == {
+        "present": True,
+        "value": 80,
+    }
+
+
+def test_diff_human_output_smoke(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.diff", lambda left, right, **kw: _diff_result()
+    )
+    result = runner.invoke(app, ["file", "diff", "left.json", "right.json"])
+    assert result.exit_code == 0
+    assert "equivalent" in result.output
+
+
+def test_diff_bad_format_is_usage_error():
+    result = runner.invoke(
+        app, ["file", "diff", "left.toml", "right.toml", "--format", "toml"]
+    )
+    assert result.exit_code == 2
+
+
+def test_diff_not_found_exit_code(monkeypatch):
+    def fake(left, right, **kw):
+        raise FileNotFoundOnDisk(f"file not found: {left}")
+
+    monkeypatch.setattr("opskit.file.cli.api.diff", fake)
+    result = runner.invoke(
+        app, ["file", "diff", "missing.json", "right.json", "--json"]
+    )
+    assert result.exit_code == 16
+
+
+def test_diff_invalid_content_exit_code(monkeypatch):
+    def fake(left, right, **kw):
+        raise InvalidContent(f"invalid JSON in {left}")
+
+    monkeypatch.setattr("opskit.file.cli.api.diff", fake)
+    result = runner.invoke(app, ["file", "diff", "broken.json", "right.json", "--json"])
+    assert result.exit_code == 21
+
+
+def test_duplicates_json_envelope_no_duplicates(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.find_duplicates", lambda directory, **kw: ()
+    )
+    result = runner.invoke(app, ["file", "duplicates", "./vendor", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.duplicates"
+    assert payload["result"]["groups"] == []
+
+
+def test_duplicates_json_envelope_with_groups(monkeypatch):
+    group = DuplicateGroup(digest="abc123", size_bytes=10, paths=("a.txt", "b.txt"))
+    monkeypatch.setattr(
+        "opskit.file.cli.api.find_duplicates", lambda directory, **kw: (group,)
+    )
+    result = runner.invoke(
+        app, ["file", "duplicates", "./vendor", "--recursive", "--json"]
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["query"]["recursive"] is True
+    assert payload["result"]["groups"][0]["digest"] == "abc123"
+    assert payload["result"]["groups"][0]["paths"] == ["a.txt", "b.txt"]
+
+
+def test_duplicates_human_output_smoke(monkeypatch):
+    group = DuplicateGroup(digest="abc123", size_bytes=10, paths=("a.txt", "b.txt"))
+    monkeypatch.setattr(
+        "opskit.file.cli.api.find_duplicates", lambda directory, **kw: (group,)
+    )
+    result = runner.invoke(app, ["file", "duplicates", "./vendor"])
+    assert result.exit_code == 0
+    assert "abc123" in result.output
+
+
+def test_duplicates_no_duplicates_human_output_smoke(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.find_duplicates", lambda directory, **kw: ()
+    )
+    result = runner.invoke(app, ["file", "duplicates", "./vendor"])
+    assert result.exit_code == 0
+    assert "no duplicates" in result.output
+
+
+def test_duplicates_not_found_exit_code(monkeypatch):
+    def fake(directory, **kw):
+        raise FileNotFoundOnDisk(f"directory not found: {directory}")
+
+    monkeypatch.setattr("opskit.file.cli.api.find_duplicates", fake)
+    result = runner.invoke(app, ["file", "duplicates", "missing-dir", "--json"])
+    assert result.exit_code == 16
+
+
+def test_duplicates_permission_denied_exit_code(monkeypatch):
+    def fake(directory, **kw):
+        raise FilePermissionDenied(f"permission denied listing {directory}")
+
+    monkeypatch.setattr("opskit.file.cli.api.find_duplicates", fake)
+    result = runner.invoke(app, ["file", "duplicates", "locked-dir", "--json"])
+    assert result.exit_code == 15
+
+
+def _stat_result(
+    path="/data/config.json",
+    *,
+    permissions="644",
+    owner="vscode",
+    is_symlink=False,
+    symlink_target=None,
+):
+    return StatResult(
+        path=path,
+        size_bytes=42,
+        modified_at="2026-01-01T00:00:00+00:00",
+        permissions=permissions,
+        owner=owner,
+        is_symlink=is_symlink,
+        symlink_target=symlink_target,
+    )
+
+
+def test_stat_json_envelope(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.stat_files", lambda p, **kw: _stat_result(p)
+    )
+    result = runner.invoke(app, ["file", "stat", "config.json", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["command"] == "file.stat"
+    assert payload["result"]["size_bytes"] == 42
+    assert payload["result"]["permissions"] == "644"
+
+
+def test_stat_symlink_json_envelope(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.stat_files",
+        lambda p, **kw: _stat_result(p, is_symlink=True, symlink_target="/real/target"),
+    )
+    result = runner.invoke(app, ["file", "stat", "link.json", "--json"])
+    payload = json.loads(result.stdout)
+    assert payload["result"]["is_symlink"] is True
+    assert payload["result"]["symlink_target"] == "/real/target"
+
+
+def test_stat_human_output_smoke(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.stat_files", lambda p, **kw: _stat_result(p)
+    )
+    result = runner.invoke(app, ["file", "stat", "config.json"])
+    assert result.exit_code == 0
+    assert "config.json" in result.output
+    assert "size=42" in result.output
+
+
+def test_stat_windows_none_fields_human_output(monkeypatch):
+    monkeypatch.setattr(
+        "opskit.file.cli.api.stat_files",
+        lambda p, **kw: _stat_result(p, permissions=None, owner=None),
+    )
+    result = runner.invoke(app, ["file", "stat", "config.json"])
+    assert result.exit_code == 0
+    assert "—" in result.output
+
+
+def test_stat_not_found_exit_code(monkeypatch):
+    def fake(p, **kw):
+        raise FileNotFoundOnDisk(f"file not found: {p}")
+
+    monkeypatch.setattr("opskit.file.cli.api.stat_files", fake)
+    result = runner.invoke(app, ["file", "stat", "missing.json", "--json"])
+    assert result.exit_code == 16
+
+
+def test_stat_batch_mixed_outcomes(monkeypatch):
+    def fake(p, **kw):
+        if p == "missing.json":
+            raise FileNotFoundOnDisk(f"file not found: {p}")
+        return _stat_result(p)
+
+    monkeypatch.setattr("opskit.file.cli.api.stat_files", fake)
+    result = runner.invoke(
+        app, ["file", "stat", "config.json", "missing.json", "--jsonl"]
+    )
+    lines = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    assert lines[0]["result"]["path"] == "config.json"
+    assert lines[1]["result"] is None
+    assert result.exit_code == 7

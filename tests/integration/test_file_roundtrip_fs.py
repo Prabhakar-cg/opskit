@@ -1,9 +1,10 @@
 """End-to-end filesystem tests for `opskit file`, driven through the real CLI.
 
 Real temp files (no mocking): a full CLI invocation round-trip for `convert`, and
-`--in-place --backup` end-to-end for both `convert` and `eol` — proves the guarded write
-path works through the whole stack (parsing, atomic write, backup) rather than unit-testing
-its pieces in isolation (that's tests/unit/test_file_api.py and test_file_atomic.py).
+`--in-place --backup` end-to-end for `convert`/`eol`/`pretty`/`reencode` — proves the guarded
+write path works through the whole stack (parsing, atomic write, backup) rather than
+unit-testing its pieces in isolation (that's tests/unit/test_file_api.py and
+test_file_atomic.py). Also covers an interrupted in-place write through the full CLI (SC-003).
 """
 
 from __future__ import annotations
@@ -96,6 +97,32 @@ def test_pretty_in_place_backup_end_to_end(tmp_path: Path):
     assert backup.read_text(encoding="utf-8") == '{"b":1,"a":2}'
     reformatted = json.loads(source.read_text(encoding="utf-8"))
     assert reformatted == {"a": 2, "b": 1}
+
+
+def test_reencode_in_place_backup_end_to_end(tmp_path: Path):
+    source = tmp_path / "legacy.txt"
+    original_bytes = "café".encode("latin-1")
+    source.write_bytes(original_bytes)
+
+    result = runner.invoke(
+        app,
+        [
+            "file",
+            "reencode",
+            str(source),
+            "--from",
+            "latin-1",
+            "--to",
+            "utf-8",
+            "--in-place",
+            "--backup",
+        ],
+    )
+    assert result.exit_code == 0
+
+    backup = tmp_path / "legacy.txt.bak"
+    assert backup.read_bytes() == original_bytes
+    assert source.read_text(encoding="utf-8") == "café"
 
 
 def test_convert_in_place_fault_injection_leaves_source_intact(

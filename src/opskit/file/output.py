@@ -11,11 +11,15 @@ from rich.console import Console
 from rich.markup import escape
 
 from opskit.file.models import (
+    MISSING,
     ChecksumResult,
     ConversionResult,
+    DuplicateGroup,
     EncodingReport,
     IdentificationResult,
     LineEndingReport,
+    StatResult,
+    StructuralDiffResult,
     ValidationResult,
 )
 
@@ -91,3 +95,53 @@ def render_encoding(result: EncodingReport, *, console: Console) -> None:
     if result.invalid_sequences:
         bits.append("[red]invalid sequences[/red]")
     console.print(f"{encoding}  {path}  ({', '.join(bits)})")
+
+
+def _render_side(value: object) -> str:
+    if value is MISSING:
+        return "[dim](missing)[/dim]"
+    return escape(repr(value))
+
+
+def render_diff(result: StructuralDiffResult, *, console: Console) -> None:
+    """Print a structural-diff outcome: equivalence, or each differing key path."""
+    left = escape(result.left_path)
+    right = escape(result.right_path)
+    if result.equivalent:
+        console.print(f"[green]equivalent[/green]  {left} == {right}")
+        return
+    console.print(f"[yellow]differs[/yellow]  {left} != {right}")
+    for entry in result.differences:
+        key_path = escape(entry.key_path)
+        console.print(
+            f"  {key_path}: {_render_side(entry.left_value)} "
+            f"!= {_render_side(entry.right_value)}"
+        )
+
+
+def render_duplicates(groups: tuple[DuplicateGroup, ...], *, console: Console) -> None:
+    """Print each group of duplicate files, or a "no duplicates" message."""
+    if not groups:
+        console.print("[green]no duplicates found[/green]")
+        return
+    for group in groups:
+        console.print(
+            f"[yellow]{group.digest}[/yellow]  "
+            f"({group.size_bytes} bytes, {len(group.paths)} files)"
+        )
+        for path in group.paths:
+            console.print(f"  {escape(path)}")
+
+
+def render_stat(result: StatResult, *, console: Console) -> None:
+    """Print one file's normalized metadata: size, permissions, owner, mtime, symlink target."""
+    path = escape(result.path)
+    permissions = escape(result.permissions) if result.permissions else "—"
+    owner = escape(result.owner) if result.owner else "—"
+    console.print(
+        f"{path}  size={result.size_bytes}  perms={permissions}  owner={owner}  "
+        f"modified={result.modified_at}"
+    )
+    if result.is_symlink:
+        target = escape(result.symlink_target) if result.symlink_target else "?"
+        console.print(f"  -> {target}")

@@ -35,15 +35,19 @@ from opskit.file.models import (
     IdentificationResult,
     LineEnding,
     LineEndingReport,
+    StatResult,
     StructuredFormat,
     ValidationResult,
 )
 from opskit.file.output import (
     render_checksum,
     render_conversion,
+    render_diff,
+    render_duplicates,
     render_encoding,
     render_identify,
     render_lineendings,
+    render_stat,
     render_validation,
 )
 
@@ -787,6 +791,252 @@ def pretty_cmd(
     else:
         render_conversion(outcome.result, console=make_console(no_color=no_color))
     raise typer.Exit(0)
+
+
+_DIFF_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file diff config.old.yaml config.new.yaml
+  opskit file diff a.json b.json --json
+"""
+
+_DIFF_FORMATS = (StructuredFormat.JSON, StructuredFormat.YAML)
+
+
+@app.command(name="diff", epilog=_DIFF_EPILOG)
+def diff_cmd(
+    left: Annotated[str, typer.Argument(help="First file to compare.")],
+    right: Annotated[str, typer.Argument(help="Second file to compare.")],
+    format: Annotated[
+        Optional[StructuredFormat],
+        typer.Option(
+            "--format",
+            help="Force this format (json or yaml) instead of auto-detecting; applies "
+            "to both sides.",
+            rich_help_panel="Query controls",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Structurally compare two JSON/YAML files, ignoring formatting/key order."""
+    try:
+        if format is not None and format not in _DIFF_FORMATS:
+            raise UsageError(
+                f"--format must be json or yaml for diff, not {format.value}"
+            )
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    query: dict[str, Any] = {
+        "left": left,
+        "right": right,
+        "format": format.value if format else None,
+    }
+    start = time.perf_counter()
+    try:
+        result = api.diff(left, right, format=format)
+    except OpskitError as error:
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        _report_write_failure(
+            error,
+            command="file.diff",
+            query=query,
+            elapsed_ms=elapsed_ms,
+            as_json=as_json,
+        )
+        raise typer.Exit(int(exit_code_for(error))) from error
+
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    if as_json:
+        envelope = build_envelope(
+            command="file.diff",
+            query=query,
+            result=result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+        emit_envelopes([envelope], jsonl=False)
+    else:
+        render_diff(result, console=make_console(no_color=no_color))
+    raise typer.Exit(0)
+
+
+_DUPLICATES_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file duplicates ./vendor
+  opskit file duplicates ./vendor --recursive --json
+"""
+
+
+@app.command(name="duplicates", epilog=_DUPLICATES_EPILOG)
+def duplicates_cmd(
+    directory: Annotated[str, typer.Argument(help="Directory to search.")],
+    recursive: Annotated[
+        bool,
+        typer.Option(
+            "--recursive", help="Descend into subdirectories.", rich_help_panel="Query"
+        ),
+    ] = False,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Search a directory for files with identical content."""
+    query: dict[str, Any] = {"directory": directory, "recursive": recursive}
+    start = time.perf_counter()
+    try:
+        groups = api.find_duplicates(directory, recursive=recursive)
+    except OpskitError as error:
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        _report_write_failure(
+            error,
+            command="file.duplicates",
+            query=query,
+            elapsed_ms=elapsed_ms,
+            as_json=as_json,
+        )
+        raise typer.Exit(int(exit_code_for(error))) from error
+
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+    if as_json:
+        envelope = build_envelope(
+            command="file.duplicates",
+            query=query,
+            result={"groups": [g.to_dict() for g in groups]},
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+        emit_envelopes([envelope], jsonl=False)
+    else:
+        render_duplicates(groups, console=make_console(no_color=no_color))
+    raise typer.Exit(0)
+
+
+_STAT_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit file stat config.json
+  opskit file stat *.json --json
+  opskit file stat -i paths.txt --jsonl
+"""
+
+
+def _stat_envelope(
+    path: str,
+    result: Optional[StatResult],
+    error: Optional[OpskitError],
+    elapsed_ms: float,
+) -> dict[str, Any]:
+    query: dict[str, Any] = {"path": path}
+    if result is not None:
+        return build_envelope(
+            command="file.stat",
+            query=query,
+            result=result.to_dict(),
+            error=None,
+            elapsed_ms=elapsed_ms,
+        )
+    return build_envelope(
+        command="file.stat",
+        query=query,
+        result=None,
+        error=error,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+@app.command(name="stat", epilog=_STAT_EPILOG)
+def stat_cmd(
+    paths: Annotated[
+        Optional[list[str]],
+        typer.Argument(help="File path(s) to inspect (or use --input-file)."),
+    ] = None,
+    input_file: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--input-file",
+            "-i",
+            help="File of paths, one per line (# comments allowed); '-' reads stdin.",
+            rich_help_panel="Query",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool,
+        typer.Option(
+            "--json", help="Emit the versioned JSON envelope.", rich_help_panel="Output"
+        ),
+    ] = False,
+    jsonl: Annotated[
+        bool,
+        typer.Option(
+            "--jsonl",
+            help="Emit one JSON envelope per line (NDJSON).",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color", help="Disable colored output.", rich_help_panel="Output"
+        ),
+    ] = False,
+) -> None:
+    """Report cross-platform-normalized metadata for each file."""
+    try:
+        targets = collect_target_list(paths, input_file)
+    except UsageError as usage_error:
+        raise _error_exit(usage_error) from usage_error
+
+    timings: dict[str, float] = {}
+
+    def _timed_stat(p: str) -> StatResult:
+        start = time.perf_counter()
+        try:
+            return api.stat_files(p)
+        finally:
+            timings[p] = (time.perf_counter() - start) * 1000.0
+
+    outcomes = collect_outcomes(targets, _timed_stat)
+
+    if as_json or jsonl:
+        envelopes = [
+            _stat_envelope(t, r, e, timings.get(t, 0.0)) for t, r, e in outcomes
+        ]
+        emit_envelopes(envelopes, jsonl=jsonl)
+    else:
+        console = make_console(no_color=no_color)
+        for _, result, error in outcomes:
+            if error is not None:
+                message = f"error: {error.message}"
+                if error.hint:
+                    message += f"\nhint: {error.hint}"
+                typer.echo(message, err=True)
+            elif result is not None:
+                render_stat(result, console=console)
+
+    codes = [ExitCode.OK if e is None else exit_code_for(e) for _, _, e in outcomes]
+    raise typer.Exit(int(aggregate_exit(codes)))
 
 
 _IDENTIFY_EPILOG = """\

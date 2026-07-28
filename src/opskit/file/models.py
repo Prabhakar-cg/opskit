@@ -7,8 +7,9 @@ JSON envelope. See specs/007-file-operations/data-model.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime, time
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 
 class StructuredFormat(str, Enum):
@@ -51,11 +52,28 @@ class _MissingType:
 MISSING = _MissingType()
 
 
+def _json_safe(value: object) -> object:
+    """Recursively coerce a loaded (JSON/YAML/TOML/XML) value into JSON-serializable form.
+
+    A YAML/TOML source can produce ``date``/``datetime``/``time`` values that ``json.dumps``
+    can't serialize on its own — mirrors ``formats._json_default``'s ISO-8601 handling for
+    the ``--json`` diff envelope (research R6).
+    """
+    if isinstance(value, dict):
+        items = cast("dict[object, object]", value).items()
+        return {str(k): _json_safe(v) for k, v in items}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in cast("list[object]", value)]
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    return value
+
+
 def _side_to_dict(value: object) -> dict[str, Any]:
     """Serialize one side of a :class:`DiffEntry` as ``{"present": bool, "value": ...}``."""
     if value is MISSING:
         return {"present": False}
-    return {"present": True, "value": value}
+    return {"present": True, "value": _json_safe(value)}
 
 
 @dataclass(frozen=True)

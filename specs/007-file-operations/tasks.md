@@ -185,16 +185,16 @@ directory are grouped.
 
 ### Implementation for User Story 6
 
-- [ ] T053 [US6] Implement the recursive structural comparator in `src/opskit/file/diffing.py`: walks two parsed trees by key/index, emits `(key_path, left_value, right_value)` per leaf difference using the `_Missing` sentinel for absent keys (research R6)
-- [ ] T054 [US6] Implement `diff()` in `src/opskit/file/api.py`: `formats.load()` (T007) both sides, run T053; raises `FileNotFoundOnDisk`/`InvalidContent` directly (single-target, not batch) (depends on T005, T007, T053)
-- [ ] T055 [US6] Implement size-then-hash duplicate grouping in `src/opskit/file/hashing.py`: group by size first, then by streaming content hash (**depends on T037, US4** — build T037 first if US4 hasn't landed yet) within each size group; honors a `recursive` flag over the directory walk
-- [ ] T056 [US6] Implement `find_duplicates()` in `src/opskit/file/api.py` using T055 (depends on T005, T037, T055)
-- [ ] T057 [P] [US6] Category rendering for `diff`/`duplicates` in `src/opskit/file/output.py`
-- [ ] T058 [US6] Thin Typer command `diff LEFT RIGHT` in `src/opskit/file/cli.py`: `--format` override applying to both sides
-- [ ] T059 [US6] Thin Typer command `duplicates DIRECTORY` in `src/opskit/file/cli.py`: `--recursive`
-- [ ] T060 [P] [US6] Unit tests in `tests/unit/test_file_diffing.py`: equivalence and differing-path cases, Hypothesis over generated nested structures, the missing-key sentinel behavior
-- [ ] T061 [P] [US6] Unit tests in `tests/unit/test_file_hashing.py`: duplicate grouping (size pre-filter, `recursive` on/off, empty-directory/no-duplicates case)
-- [ ] T062 [P] [US6] CLI unit tests in `tests/unit/test_file_cli.py`: `diff`/`duplicates` envelopes and exit codes
+- [X] T053 [US6] Implement the recursive structural comparator in `src/opskit/file/diffing.py`: walks two parsed trees by key/index, emits `(key_path, left_value, right_value)` per leaf difference using the `_Missing` sentinel for absent keys (research R6)
+- [X] T054 [US6] Implement `diff()` in `src/opskit/file/api.py`: `formats.load()` (T007) both sides, run T053; raises `FileNotFoundOnDisk`/`InvalidContent` directly (single-target, not batch) (depends on T005, T007, T053)
+- [X] T055 [US6] Implement size-then-hash duplicate grouping in `src/opskit/file/hashing.py`: group by size first, then by streaming content hash (**depends on T037, US4** — build T037 first if US4 hasn't landed yet) within each size group; honors a `recursive` flag over the directory walk
+- [X] T056 [US6] Implement `find_duplicates()` in `src/opskit/file/api.py` using T055 (depends on T005, T037, T055)
+- [X] T057 [P] [US6] Category rendering for `diff`/`duplicates` in `src/opskit/file/output.py`
+- [X] T058 [US6] Thin Typer command `diff LEFT RIGHT` in `src/opskit/file/cli.py`: `--format` override applying to both sides
+- [X] T059 [US6] Thin Typer command `duplicates DIRECTORY` in `src/opskit/file/cli.py`: `--recursive`
+- [X] T060 [P] [US6] Unit tests in `tests/unit/test_file_diffing.py`: equivalence and differing-path cases, Hypothesis over generated nested structures, the missing-key sentinel behavior
+- [X] T061 [P] [US6] Unit tests in `tests/unit/test_file_hashing.py`: duplicate grouping (size pre-filter, `recursive` on/off, empty-directory/no-duplicates case)
+- [X] T062 [P] [US6] CLI unit tests in `tests/unit/test_file_cli.py`: `diff`/`duplicates` envelopes and exit codes
 
 **Checkpoint**: `diff` + `duplicates` fully usable
 
@@ -210,12 +210,12 @@ correctly; both `contracts/python-api.md` usage examples execute unmodified (SC-
 
 ### Implementation for User Story 7
 
-- [ ] T063 [US7] Implement `stat_files()` in `src/opskit/file/api.py`: `os.stat`/`os.lstat`-based cross-platform-normalized metadata (POSIX octal permissions and owner via `pwd`, both `None` on Windows per FR-022; symlink target via `os.readlink`), batch-safe (depends on T005)
-- [ ] T064 [P] [US7] Category rendering for `stat` in `src/opskit/file/output.py`
-- [ ] T065 [US7] Thin Typer command `stat` in `src/opskit/file/cli.py`
-- [ ] T066 [P] [US7] Unit tests in `tests/unit/test_file_api.py`: `stat_files()` incl. a symlink fixture; cross-platform field-availability assertions per platform (permissions/owner `None` on Windows, populated on POSIX)
-- [ ] T067 [P] [US7] CLI unit tests in `tests/unit/test_file_cli.py`: `stat` envelope and batch behavior
-- [ ] T068 [US7] Finalize `src/opskit/file/__init__.py` `__all__` (all functions, models, enums, errors per contracts/python-api.md) and add a test executing **both** `contracts/python-api.md` usage examples verbatim in `tests/unit/test_file_api.py` (SC-006)
+- [X] T063 [US7] Implement `stat_files()` in `src/opskit/file/api.py`: `os.stat`/`os.lstat`-based cross-platform-normalized metadata (POSIX octal permissions and owner via `pwd`, both `None` on Windows per FR-022; symlink target via `os.readlink`), batch-safe (depends on T005)
+- [X] T064 [P] [US7] Category rendering for `stat` in `src/opskit/file/output.py`
+- [X] T065 [US7] Thin Typer command `stat` in `src/opskit/file/cli.py`
+- [X] T066 [P] [US7] Unit tests in `tests/unit/test_file_api.py`: `stat_files()` incl. a symlink fixture; cross-platform field-availability assertions per platform (permissions/owner `None` on Windows, populated on POSIX)
+- [X] T067 [P] [US7] CLI unit tests in `tests/unit/test_file_cli.py`: `stat` envelope and batch behavior
+- [X] T068 [US7] Finalize `src/opskit/file/__init__.py` `__all__` (all functions, models, enums, errors per contracts/python-api.md) and add a test executing **both** `contracts/python-api.md` usage examples verbatim in `tests/unit/test_file_api.py` (SC-006)
 
 **Checkpoint**: full category functional — API parity delivered
 
@@ -223,10 +223,10 @@ correctly; both `contracts/python-api.md` usage examples execute unmodified (SC-
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
-- [ ] T069 [P] Write `src/opskit/file/README.md` (command reference mirroring `storage/README.md`: options tables for all 12 commands, the two new exit codes, JSON samples, the documented XML↔dict mapping convention, a library section) and add the `opskit file` row + link in the root `README.md` Commands table (docs gate, Art. II)
-- [ ] T070 [P] Additional end-to-end scenarios in `tests/integration/test_file_roundtrip_fs.py`: `eol`/`reencode`/`pretty` `--in-place --backup` end-to-end; an interrupted-write fault injection exercised through the full CLI (not just `atomic.py` unit-level)
-- [ ] T071 Run the full quickstart validation matrix + all gates: `uv run ruff format --check . && uv run ruff check . && uv run mypy src && uv run pyright && uv run pytest -q` (coverage ≥ 90%)
-- [ ] T072 Reconcile design docs with as-built reality: append any research.md/data-model.md addenda for discoveries made during implementation (matching the `storage` feature's precedent of recording as-built deviations rather than silently diverging from the plan)
+- [X] T069 [P] Write `src/opskit/file/README.md` (command reference mirroring `storage/README.md`: options tables for all 12 commands, the two new exit codes, JSON samples, the documented XML↔dict mapping convention, a library section) and add the `opskit file` row + link in the root `README.md` Commands table (docs gate, Art. II)
+- [X] T070 [P] Additional end-to-end scenarios in `tests/integration/test_file_roundtrip_fs.py`: `eol`/`reencode`/`pretty` `--in-place --backup` end-to-end; an interrupted-write fault injection exercised through the full CLI (not just `atomic.py` unit-level)
+- [X] T071 Run the full quickstart validation matrix + all gates: `uv run ruff format --check . && uv run ruff check . && uv run mypy src && uv run pyright && uv run pytest -q` (coverage ≥ 90%)
+- [X] T072 Reconcile design docs with as-built reality: append any research.md/data-model.md addenda for discoveries made during implementation (matching the `storage` feature's precedent of recording as-built deviations rather than silently diverging from the plan)
 
 ---
 

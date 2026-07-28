@@ -4,6 +4,14 @@ API-first (constitution Art. VII): the CLI is a client of this. The library rais
 exceptions, never prints or exits, holds no global state, ships `py.typed`. Signatures are
 illustrative; they define the SemVer-governed public contract.
 
+**As-built note**: every function below takes a **single** target path, not `*paths` —
+matching the `opskit.storage.dir_size` / `opskit.net.probe` precedent elsewhere in the
+codebase. Batching over multiple targets (arguments, `--input-file`, stdin) is entirely the
+CLI layer's job (`opskit.core.cliutils.collect_outcomes`), which keeps this module free of
+batch/output concerns and lets every diagnostic function have one uniform raise-on-failure
+shape. This deviates from the feature's original plan (which specified `*paths` varargs
+returning a tuple); recorded here per the `storage` feature's as-built-deviation precedent.
+
 ## Public surface — `opskit.file.__all__`
 
 ```python
@@ -24,29 +32,32 @@ from opskit.file import (
 ## Read-only diagnostic functions
 
 ```python
-def lineendings(*paths: str | Path) -> tuple[LineEndingReport, ...]:
-    """CRLF/LF/lone-CR counts and mixed-style detection for each path (FR-001).
+def lineendings(path: str | Path) -> LineEndingReport:
+    """CRLF/LF/lone-CR counts and mixed-style detection for `path` (FR-001).
 
-    Never raises for an individual bad path — see "Raise/return split" below.
+    Raises:
+        FileNotFoundOnDisk / FilePermissionDenied: `path` could not be read.
     """
 
-def encoding(*paths: str | Path) -> tuple[EncodingReport, ...]:
-    """Detected encoding, BOM presence, and invalid-sequence flag for each path (FR-002)."""
+def encoding(path: str | Path) -> EncodingReport:
+    """Detected encoding, BOM presence, and invalid-sequence flag for `path` (FR-002)."""
 
 def validate(
-    *paths: str | Path,
+    path: str | Path,
+    *,
     format: StructuredFormat | None = None,  # None = auto-detect
-) -> tuple[ValidationResult, ...]:
-    """Syntax-check each path as JSON/YAML/TOML/XML (FR-003)."""
+) -> ValidationResult:
+    """Syntax-check `path` as JSON/YAML/TOML/XML (FR-003).
 
-def identify(*paths: str | Path) -> tuple[IdentificationResult, ...]:
-    """Content-sniffed type vs. extension for each path (FR-004)."""
+    A syntax error, or a format that can't be determined at all, is reported as
+    `valid=False` — never raised, since that's precisely what this function detects.
+    """
 
-def hash_files(
-    *paths: str | Path,
-    algo: str = "sha256",
-) -> tuple[ChecksumResult, ...]:
-    """Checksum of each path using `algo` (FR-005)."""
+def identify(path: str | Path) -> IdentificationResult:
+    """Content-sniffed type vs. extension for `path` (FR-004)."""
+
+def hash_files(path: str | Path, *, algo: str = "sha256") -> ChecksumResult:
+    """Checksum of `path` using `algo` (FR-005)."""
 
 def diff(
     left: str | Path,
@@ -61,8 +72,8 @@ def diff(
         InvalidContent: either file fails to parse as the (detected/declared) format.
     """
 
-def stat_files(*paths: str | Path) -> tuple[StatResult, ...]:
-    """Cross-platform-normalized metadata for each path (FR-007)."""
+def stat_files(path: str | Path) -> StatResult:
+    """Cross-platform-normalized metadata for `path` (FR-007)."""
 
 def find_duplicates(
     directory: str | Path,
@@ -80,9 +91,16 @@ def find_duplicates(
 ## Guarded write functions
 
 Every function below shares the write-safety parameters and guarantees in
-[data-model.md](../data-model.md#write-safety-invariants) (research R7):
+[data-model.md](../data-model.md#write-safety-invariants) (research R7), and returns a
+`WriteOutcome` — a `NamedTuple` of `(result: ConversionResult, stdout_content: bytes | None)`.
+`stdout_content` is populated only when neither `output` nor `in_place` was requested; the
+library itself never prints it (Art. III) — the CLI does, on the caller's behalf:
 
 ```python
+class WriteOutcome(NamedTuple):
+    result: ConversionResult
+    stdout_content: bytes | None
+
 def convert(
     path: str | Path,
     *,
@@ -92,7 +110,7 @@ def convert(
     in_place: bool = False,
     backup: bool = False,
     force: bool = False,
-) -> ConversionResult:
+) -> WriteOutcome:
     """Convert a JSON/YAML/TOML/XML file to another of those formats (FR-010).
 
     Raises:
@@ -100,18 +118,19 @@ def convert(
         InvalidContent: the source fails to parse as its (detected/declared) format.
         ClobberRefused: `--backup` was requested but `<path>.bak` already exists (and
             `force` is False).
+        UsageError: `to` equals the detected/declared source format.
     """
 
 def eol(
-    *paths: str | Path,
+    path: str | Path,
+    *,
     to: LineEnding,
-    output: str | Path | None = None,  # only valid for a single path
+    output: str | Path | None = None,
     in_place: bool = False,
     backup: bool = False,
     force: bool = False,
-) -> tuple[ConversionResult, ...]:
-    """Normalize line endings across one or more files (FR-011). Never raises for an
-    individual bad path when called with multiple paths — see "Raise/return split"."""
+) -> WriteOutcome:
+    """Normalize line endings in `path` to `to` (FR-011)."""
 
 def reencode(
     path: str | Path,
@@ -122,7 +141,7 @@ def reencode(
     in_place: bool = False,
     backup: bool = False,
     force: bool = False,
-) -> ConversionResult:
+) -> WriteOutcome:
     """Transcode a text file from one encoding to another (FR-012).
 
     Raises:
@@ -142,32 +161,37 @@ def pretty(
     in_place: bool = False,
     backup: bool = False,
     force: bool = False,
-) -> ConversionResult:
+) -> WriteOutcome:
     """Reformat a JSON/YAML/XML file's layout without changing its data (FR-013)."""
 ```
 
 ## Raise/return split
 
-Failures that preclude any report at all for a *single-target* call **raise**
-(`FileNotFoundOnDisk`, `FilePermissionDenied`, `InvalidContent`, `ClobberRefused`). For the
-*batchable* functions (`lineendings`, `encoding`, `validate`, `identify`, `hash_files`,
-`stat_files`, `eol` called with multiple paths), a failure on one target does **not** raise and
-does **not** stop the rest — it is represented as `result=None` alongside the corresponding typed
-error for that target in the batch's own result shape (mirrored 1:1 by the CLI's per-target JSON
-envelope, FR-020). `diff` and `find_duplicates` are single-target calls and raise directly, like
-`dir_size` in `opskit.storage`.
+Every function documented above takes a single target and raises directly on failure
+(`FileNotFoundOnDisk`, `FilePermissionDenied`, `InvalidContent`, `ClobberRefused`,
+`UsageError`) — like `dir_size`/`probe` elsewhere in opskit. `validate`'s "is this file
+syntactically valid" question is the one documented exception: a syntax error, or an
+undetermined format, is a *returned* `valid=False` result, not a raised error, since
+detecting that is the function's whole purpose.
+
+The batch behavior described by FR-020 (process every target; a failure on one doesn't abort
+the rest; a per-target `result=None` + typed `error` in `--json`/`--jsonl`) is implemented
+once, in the CLI layer (`opskit.core.cliutils.collect_outcomes`), by calling each of these
+single-target functions once per target — it is not a property of the library functions
+themselves.
 
 ## Usage example (documented in `file/README.md`; must run as written — SC-006)
 
 ```python
 from opskit.file import validate, eol, convert, InvalidContent, ClobberRefused
 
-for result in validate("config.json", "config.yaml"):
+for path in ("config.json", "config.yaml"):
+    result = validate(path)
     status = "OK" if result.valid else f"INVALID @ {result.error_line}:{result.error_column}"
     print(result.path, result.format, status)
 
-eol_result, = eol("script.sh", to="lf", in_place=True, backup=True)
-print(eol_result.backup_path, eol_result.lossless)
+eol_outcome = eol("script.sh", to="lf", in_place=True, backup=True)
+print(eol_outcome.result.backup_path, eol_outcome.result.lossless)
 
 try:
     convert("config.json", to="yaml", output="config.yaml")

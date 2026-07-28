@@ -67,9 +67,16 @@ files the operator explicitly targets.
 ### DiffEntry *(nested — one differing key path, under `StructuralDiffResult.differences`)*
 | Field | Type | Notes |
 |-------|------|-------|
-| `key_path` | `str` | dotted/bracketed path, e.g. `"server.ports[1]"` |
-| `left_value` | `Any \| _Missing` | the sentinel `_Missing` when the key is absent on the left (research R6) |
-| `right_value` | `Any \| _Missing` | same sentinel convention on the right |
+| `key_path` | `str` | dotted/bracketed path, e.g. `"server.ports[1]"` (the bare-scalar top-level case, e.g. comparing two non-container documents directly, uses `"$"`, as-built addendum) |
+| `left_value` | `object \| MISSING` | the `MISSING` sentinel (`models.MISSING`) when the key is absent on the left (research R6) |
+| `right_value` | `object \| MISSING` | same sentinel convention on the right |
+
+`to_dict()` renders each side as `{"present": bool, "value": ...}` (`present: false` and no
+`value` key when that side is `MISSING`) rather than emitting the sentinel itself, which isn't
+JSON-serializable — as-built addendum. Any `date`/`datetime`/`time` leaf a YAML/TOML source can
+produce is coerced to its ISO-8601 string form recursively before serialization, mirroring
+`formats.py`'s own JSON-output handling, so a dated document diffed with `--json` doesn't crash
+(as-built addendum, discovered implementing `diff()`).
 
 ### StructuralDiffResult *(`file/models.py`, returned by `diff()`)*
 | Field | Type | Notes |
@@ -100,7 +107,7 @@ files the operator explicitly targets.
 | Field | Type | Notes |
 |-------|------|-------|
 | `path` | `str` | the source file operated on |
-| `destination` | `str` | `"stdout"`, an explicit `--output` path, or the source path itself when `in_place` |
+| `destination` | `str` | `"-"` for stdout (as-built; originally spec'd `"stdout"`), an explicit `--output` path, or the source path itself when `in_place` |
 | `in_place` | `bool` | |
 | `backup_path` | `str \| None` | populated only when `--backup` was used |
 | `lossless` | `bool` | `False` when the conversion could not exactly preserve source data/characters (FR-018) — the command still succeeds; this is a reported fact, not a failure |
@@ -112,6 +119,13 @@ files the operator explicitly targets.
   (`atomic.py`); `path` never observably contains partially-written content.
 - `backup_path is not None` ⇒ that path contains the pre-conversion content of `path`.
 
+**As-built addendum**: each guarded write function actually returns a `WriteOutcome` — a
+`NamedTuple` of `(result: ConversionResult, stdout_content: bytes | None)`, not a bare
+`ConversionResult` — because the library layer must never `print()` (Art. III). When neither
+`output` nor `in_place` was requested, `result.destination == "-"` and the transformed bytes
+come back via `stdout_content` for the *caller* (the CLI, in practice) to print; otherwise
+`stdout_content is None`. See `contracts/python-api.md`.
+
 ## Batch semantics summary
 
 | Command | Batchable? | Multiple-target shape |
@@ -121,3 +135,11 @@ files the operator explicitly targets.
 | `convert`, `reencode`, `pretty` | No — one source per invocation | changing format/encoding needs a per-file output destination decision (`--output`/`--in-place`); batching is deferred (spec Assumptions) |
 | `diff` | No — exactly two paths | pairwise by definition |
 | `duplicates` | No — one directory root (with `--recursive`) | not a list-of-targets shape |
+
+**As-built addendum**: "batchable" above describes the *CLI's* behavior. Every function in
+`opskit.file`'s Python API — including the batchable ones — takes a single target path and
+raises directly on failure; there is no `*paths` varargs form. The CLI implements FR-020's
+batch semantics once, generically, in `opskit.core.cliutils.collect_outcomes`, by calling the
+single-target function once per target (matching the `opskit.storage.dir_size`/
+`opskit.net.probe` precedent). See `contracts/python-api.md`'s "As-built note" and "Raise/return
+split" for the full rationale.

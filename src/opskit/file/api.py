@@ -11,22 +11,30 @@ Every function here takes a **single** target path — matching the ``storage.di
 
 from __future__ import annotations
 
+import os
+import stat as stat_module
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
 
 from opskit.core.errors import UsageError
-from opskit.file import atomic, formats, hashing, sniff, textstats
-from opskit.file.errors import InvalidContent
+from opskit.file import atomic, diffing, formats, hashing, sniff, textstats
+from opskit.file.errors import FileNotFoundOnDisk, FilePermissionDenied, InvalidContent
 from opskit.file.models import (
     ChecksumResult,
     ConversionResult,
+    DuplicateGroup,
     EncodingReport,
     IdentificationResult,
     LineEnding,
     LineEndingReport,
+    StatResult,
+    StructuralDiffResult,
     StructuredFormat,
     ValidationResult,
 )
+
+_WINDOWS = os.name == "nt"
 
 
 class WriteOutcome(NamedTuple):
@@ -326,4 +334,101 @@ def reencode(
     transcoded = textstats.transcode(content, from_encoding=from_, to_encoding=to)
     return _write_guarded(
         source, transcoded, output=output, in_place=in_place, backup=backup, force=force
+    )
+
+
+def diff(
+    left: str | Path,
+    right: str | Path,
+    *,
+    format: StructuredFormat | None = None,
+) -> StructuralDiffResult:
+    """Structural (semantic) comparison of ``left`` and ``right`` (FR-006).
+
+    ``format`` (when given) applies to both sides. Two identical paths compare as equivalent,
+    not an error.
+
+    Raises:
+        FileNotFoundOnDisk / FilePermissionDenied: either side could not be read.
+        InvalidContent: either side fails to parse as its (detected/declared) format.
+    """
+    left_loaded = formats.load(left, format=format)
+    right_loaded = formats.load(right, format=format)
+    differences = diffing.compare(left_loaded.data, right_loaded.data)
+    return StructuralDiffResult(
+        left_path=str(left), right_path=str(right), differences=differences
+    )
+
+
+def find_duplicates(
+    directory: str | Path, *, recursive: bool = False
+) -> tuple[DuplicateGroup, ...]:
+    """Groups of files under ``directory`` sharing identical content (FR-008).
+
+    Symlinks are never followed during traversal (spec Assumptions).
+
+    Raises:
+        FileNotFoundOnDisk: ``directory`` does not exist, or is not a directory.
+        FilePermissionDenied: ``directory`` itself cannot be listed.
+    """
+    return tuple(hashing.find_duplicates(directory, recursive=recursive))
+
+
+def _owner_name(uid: int) -> str | None:
+    """POSIX username for ``uid``, or ``None`` on Windows / when undeterminable (FR-022)."""
+    if _WINDOWS:
+        return None
+    try:
+        import pwd  # noqa: PLC0415 - POSIX-only stdlib module, must not load on Windows
+    except ImportError:  # pragma: no cover - always present on POSIX
+        return None
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return None
+
+
+def stat_files(path: str | Path) -> StatResult:
+    """Cross-platform-normalized metadata for ``path`` (FR-007).
+
+    ``permissions``/``owner`` are ``None`` on Windows, where POSIX-style mode bits and
+    numeric-uid ownership don't apply (FR-022). Symlinks are reported as such via
+    ``is_symlink``/``symlink_target`` rather than followed.
+
+    Raises:
+        FileNotFoundOnDisk: ``path`` does not exist.
+        FilePermissionDenied: ``path`` could not be inspected.
+    """
+    resolved = Path(path)
+    try:
+        st = resolved.lstat()
+    except FileNotFoundError as exc:
+        raise FileNotFoundOnDisk(
+            f"file not found: {resolved}", hint="check the path and try again"
+        ) from exc
+    except PermissionError as exc:
+        raise FilePermissionDenied(f"permission denied: {resolved}") from exc
+
+    is_symlink = stat_module.S_ISLNK(st.st_mode)
+    symlink_target: str | None = None
+    if is_symlink:
+        try:
+            symlink_target = str(resolved.readlink())
+        except OSError:
+            symlink_target = None
+
+    permissions = (
+        None if _WINDOWS else oct(stat_module.S_IMODE(st.st_mode))[2:].zfill(3)
+    )
+    owner = _owner_name(st.st_uid)
+    modified_at = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+
+    return StatResult(
+        path=str(resolved),
+        size_bytes=st.st_size,
+        modified_at=modified_at,
+        permissions=permissions,
+        owner=owner,
+        is_symlink=is_symlink,
+        symlink_target=symlink_target,
     )
