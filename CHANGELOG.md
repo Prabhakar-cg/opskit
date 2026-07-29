@@ -8,6 +8,11 @@ generated automatically by release-please from Conventional Commits.
 ## [0.1.7](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.6...opskit-v0.1.7) (2026-07-28)
 
 
+### Features
+
+* **file:** local file diagnostics and guarded conversion commands (opskit file) ([#45](https://github.com/Prabhakar-cg/opskit/issues/45)) ([98966e7](https://github.com/Prabhakar-cg/opskit/commit/98966e70977feb66d6a6667a2a0bf797cf047bca))
+
+
 ### Bug Fixes
 
 * **net:** reword --proxy help text to clear SonarCloud security gate ([#43](https://github.com/Prabhakar-cg/opskit/issues/43)) ([ea3eef7](https://github.com/Prabhakar-cg/opskit/commit/ea3eef787cd3830e55312594af8bfe49b3416465))
