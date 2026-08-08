@@ -16,11 +16,13 @@ from typing import Any, Callable
 
 from opskit.ad import attributes as adattr
 from opskit.ad import directory, discovery
-from opskit.ad.errors import AmbiguousPrincipal, PrincipalNotFound
+from opskit.ad.errors import AmbiguousPrincipal, PrincipalIsGroup, PrincipalNotFound
 from opskit.ad.models import (
     AccountStatusReport,
     ConnectivityReport,
     DirectoryConfig,
+    GroupMemberEntry,
+    GroupMembersReport,
     IdentifierKind,
     MembershipEntry,
     MembershipReport,
@@ -105,10 +107,18 @@ def _first_rdn_value(dn: str) -> str:
 
 
 def _identifier_clause(kind: IdentifierKind, value: str) -> str:
-    """Build the escaped equality clause for a non-DN identifier."""
+    """Build the escaped equality clause for a non-DN identifier.
+
+    A UPN-shaped identifier (contains ``@``) matches either ``userPrincipalName`` or
+    ``mail`` (008-ad-enhancements FR-008) — the same string is often used as both, and
+    directories with multiple UPN suffixes can have a user findable only via `mail`. A
+    single entry matching both attributes still resolves as one match (FR-010); two
+    different entries each matching one attribute still trip the existing ambiguity
+    refusal in ``_find_one`` (FR-009) — an LDAP OR-filter search naturally dedups by entry.
+    """
     escaped = escape_filter_value(value)
     if kind is IdentifierKind.UPN:
-        return f"(userPrincipalName={escaped})"
+        return f"(|(userPrincipalName={escaped})(mail={escaped}))"
     return f"(|(sAMAccountName={escaped})(cn={escaped}))"
 
 
@@ -124,6 +134,8 @@ def _find_one(
 
     Raises:
         PrincipalNotFound: When nothing matches.
+        PrincipalIsGroup: When a principal-scoped lookup finds no user/computer account
+            but the identifier matches exactly one group (008-ad-enhancements FR-001).
         AmbiguousPrincipal: When more than one object matches (candidates listed).
     """
     id_kind, value = classify_identifier(identifier)
@@ -135,15 +147,27 @@ def _find_one(
                 hint="check the distinguished name",
             )
         return entry
-    ldap_filter = (
-        f"(&{_CLASS_FILTERS[kind_filter]}{_identifier_clause(id_kind, value)})"
-    )
+    identifier_clause = _identifier_clause(id_kind, value)
+    ldap_filter = f"(&{_CLASS_FILTERS[kind_filter]}{identifier_clause})"
     entries = session.search(
         base=session.default_base(),
         ldap_filter=ldap_filter,
         attributes=attributes,
     )
     if not entries:
+        if kind_filter == "principal":
+            group_match = session.search(
+                base=session.default_base(),
+                ldap_filter=f"(&{_CLASS_FILTERS['group']}{identifier_clause})",
+                attributes=["sAMAccountName"],
+            )
+            if len(group_match) == 1:
+                group_name = _first_rdn_value(group_match[0].dn)
+                raise PrincipalIsGroup(
+                    f"'{identifier}' is a group, not a user or computer account",
+                    hint=f"see its members with: opskit ad members {group_name}; "
+                    f"or test membership with: opskit ad member <principal> {group_name}",
+                )
         raise PrincipalNotFound(
             f"no {label} found matching: {identifier}",
             hint="check the spelling and identifier form (name, user@domain, or DN); "
@@ -469,6 +493,32 @@ class AdClient:
             member=False,
         )
 
+    def members(self, group: str, *, effective: bool = True) -> GroupMembersReport:
+        """Report a group's members, optionally with nesting resolved (US2, default: yes).
+
+        The ``member``-direction mirror of :meth:`membership`. Unlike ``membership()``,
+        ``effective`` defaults to ``True`` here (see :class:`GroupMembersReport`).
+        """
+        session = self._ensure()
+        entry = _find_one(
+            session,
+            group,
+            kind_filter="group",
+            attributes=["sAMAccountName", "member"],
+            label="group",
+        )
+        if effective:
+            direct = _direct_members(session, entry, classify=True)
+            members = _expand_members(session, entry.dn, direct)
+        else:
+            members = _direct_members(session, entry, classify=False)
+        return GroupMembersReport(
+            group=group,
+            dn=entry.dn,
+            effective=effective,
+            members=tuple(members),
+        )
+
     def show(self, name: str, *, object_type: str = "auto") -> ObjectSummary:
         """Report one named user/group/computer object's key attributes (US5)."""
         if object_type not in OBJECT_TYPES:
@@ -528,6 +578,87 @@ class AdClient:
         return MembershipEntry(
             name=_first_rdn_value(group.dn), dn=group.dn, via="primary"
         )
+
+
+def _direct_members(
+    session: directory.DirectorySession,
+    entry: directory.DirectoryEntry,
+    *,
+    classify: bool = True,
+) -> list[GroupMemberEntry]:
+    """The group's direct members (008-ad-enhancements US2).
+
+    When ``classify`` is false (the ``--direct``-only fast path), skips the per-member
+    ``objectClass`` read entirely — cheap even for a very large group — and reports
+    ``object_type="unknown"`` for every entry, since nothing will be recursed into anyway.
+    """
+    members: list[GroupMemberEntry] = []
+    for raw in entry.values("member"):
+        member_dn = str(raw)
+        object_type = "unknown"
+        if classify:
+            member_entry = session.read_entry(member_dn, attributes=["objectClass"])
+            if member_entry is not None:
+                object_type = _object_type_of(member_entry)
+        members.append(
+            GroupMemberEntry(
+                name=_first_rdn_value(member_dn),
+                dn=member_dn,
+                object_type=object_type,
+                via="direct",
+            )
+        )
+    return members
+
+
+def _expand_members(
+    session: directory.DirectorySession,
+    top_dn: str,
+    direct: list[GroupMemberEntry],
+) -> list[GroupMemberEntry]:
+    """Resolve effective (nested) group membership: BFS over ``member`` (008 US2).
+
+    The ``member``-direction mirror of :func:`_expand_nested` (R7 of 004-ad-diagnostics):
+    breadth-first order guarantees each member is recorded at its **shortest** acquisition
+    path; the visited set — seeded with the top-level group's own DN, guarding against a
+    cycle looping back to it — terminates cycles and reports each distinct member once
+    (FR-006). Only members already classified ``"group"`` are recursed into.
+    """
+    results = list(direct)
+    visited = {top_dn.lower()}
+    visited.update(entry.dn.lower() for entry in direct)
+    queue: deque[tuple[str, str, tuple[str, ...]]] = deque(
+        (entry.dn, entry.name, ()) for entry in direct if entry.object_type == "group"
+    )
+    while queue:
+        dn, name, path = queue.popleft()
+        group_entry = session.read_entry(dn, attributes=["member"])
+        if group_entry is None:  # e.g. a referral outside this directory's view
+            continue
+        chain = (*path, name)
+        for raw in group_entry.values("member"):
+            member_dn = str(raw)
+            key = member_dn.lower()
+            if key in visited:
+                continue
+            visited.add(key)
+            member_name = _first_rdn_value(member_dn)
+            member_read = session.read_entry(member_dn, attributes=["objectClass"])
+            object_type = (
+                _object_type_of(member_read) if member_read is not None else "unknown"
+            )
+            results.append(
+                GroupMemberEntry(
+                    name=member_name,
+                    dn=member_dn,
+                    object_type=object_type,
+                    via="nested",
+                    path=chain,
+                )
+            )
+            if object_type == "group":
+                queue.append((member_dn, member_name, chain))
+    return results
 
 
 def _expand_nested(
@@ -791,6 +922,41 @@ def is_member(
     )
     with AdClient(built, session_factory=session_factory) as client:
         return client.is_member(principal, group)
+
+
+def members(
+    group: str,
+    *,
+    effective: bool = True,
+    server: str | None = None,
+    domain: str | None = None,
+    security: str = "ldaps",
+    port: int | None = None,
+    bind_user: str | None = None,
+    password: str | None = None,
+    allow_cleartext: bool = False,
+    ca_file: Path | None = None,
+    base_dn: str | None = None,
+    timeout: float = 5.0,
+    config: DirectoryConfig | None = None,
+    session_factory: SessionFactory | None = None,
+) -> GroupMembersReport:
+    """One-shot group-members report (see :meth:`AdClient.members`)."""
+    built = _make_config(
+        config,
+        server=server,
+        domain=domain,
+        security=security,
+        port=port,
+        bind_user=bind_user,
+        password=password,
+        allow_cleartext=allow_cleartext,
+        ca_file=ca_file,
+        base_dn=base_dn,
+        timeout=timeout,
+    )
+    with AdClient(built, session_factory=session_factory) as client:
+        return client.members(group, effective=effective)
 
 
 def show(

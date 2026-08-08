@@ -70,6 +70,18 @@ class PrincipalNotFound(AdError):
     exit_code = ExitCode.NOT_FOUND
 
 
+class PrincipalIsGroup(AdError):
+    """A principal-scoped lookup's identifier resolves to a group, not a principal.
+
+    Raised instead of :class:`PrincipalNotFound` when a search scoped to user/computer
+    accounts finds nothing but the same identifier matches exactly one group — the
+    identifier wasn't wrong, the wrong kind of lookup was used (008-ad-enhancements FR-001).
+    """
+
+    code = "principal_is_group"
+    exit_code = ExitCode.NOT_FOUND  # same outcome class; reused, no new exit code
+
+
 # Active Directory encodes the *reason* a bind failed as a hex sub-code in the
 # invalidCredentials diagnostic message ("... data 52e, ..."). Decoding it turns a bare
 # credential rejection into a sign-in diagnosis (research R3).

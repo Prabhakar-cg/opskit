@@ -26,6 +26,7 @@ from opskit.ad import api
 from opskit.ad.models import AccountStatusReport, DirectoryConfig
 from opskit.ad.output import (
     render_check,
+    render_group_members,
     render_member_verdict,
     render_membership,
     render_object,
@@ -85,6 +86,15 @@ _MEMBER_EPILOG = """\
 
   opskit ad member jdoe "VPN Users"
   opskit ad member jdoe "Domain Admins" --json   # exit 0 = member, 17 = not
+"""
+
+_MEMBERS_EPILOG = """\
+[bold]Examples[/bold]
+
+  opskit ad members "VPN Users"
+  opskit ad members "VPN Users" --direct
+  opskit ad members "VPN Users" "Domain Admins" --jsonl
+  printf 'VPN Users\\nDomain Admins\\n' | opskit ad members -i - --jsonl
 """
 
 _SHOW_EPILOG = """\
@@ -703,6 +713,76 @@ def member(
         else:
             render_member_verdict(verdict, console=make_console(no_color=no_color))
     raise typer.Exit(int(ExitCode.OK if verdict.member else ExitCode.NOT_MEMBER))
+
+
+@app.command(epilog=_MEMBERS_EPILOG)
+def members(
+    groups_arg: Annotated[
+        Optional[list[str]],
+        typer.Argument(
+            help="Groups: name or DN.",
+            show_default=False,
+        ),
+    ] = None,
+    direct: Annotated[
+        bool,
+        typer.Option(
+            "--direct",
+            help="Direct members only (default: effective, nested membership resolved).",
+            rich_help_panel="Query",
+        ),
+    ] = False,
+    input_file: InputFileOption = None,
+    server: ServerOption = None,
+    domain: DomainOption = None,
+    bind_user: BindUserOption = None,
+    starttls: StartTlsOption = False,
+    plaintext: PlaintextOption = False,
+    ca_file: CaFileOption = None,
+    base_dn: BaseDnOption = None,
+    timeout: TimeoutOption = 5.0,
+    as_json: JsonOption = False,
+    jsonl: JsonlOption = False,
+    no_color: NoColorOption = False,
+) -> None:
+    """List a group's members (direct, or effective with nesting) — batchable."""
+    try:
+        batch_names = collect_target_list(groups_arg, input_file)
+        config = _build_config(
+            server=server,
+            domain=domain,
+            bind_user=bind_user,
+            starttls=starttls,
+            plaintext=plaintext,
+            ca_file=ca_file,
+            base_dn=base_dn,
+            timeout=timeout,
+        )
+    except OpskitError as error:
+        raise _usage_exit(error) from error
+
+    client = api.AdClient(config)
+    with client:
+        outcomes = _run_batch(
+            batch_names,
+            config,
+            lambda c, name: c.members(name, effective=not direct),
+            client,
+        )
+        code = _emit_batch(
+            outcomes,
+            command="ad.members",
+            name_key="group",
+            config=config,
+            client=client,
+            as_json=as_json,
+            jsonl=jsonl,
+            no_color=no_color,
+            render=lambda result, console: render_group_members(
+                result, console=console
+            ),
+        )
+    raise typer.Exit(int(code))
 
 
 @app.command(epilog=_SHOW_EPILOG)

@@ -18,6 +18,7 @@ from rich.table import Table
 from opskit.ad.models import (
     AccountStatusReport,
     ConnectivityReport,
+    GroupMembersReport,
     MembershipReport,
     MembershipVerdict,
     ObjectSummary,
@@ -125,6 +126,33 @@ def render_membership(report: MembershipReport, *, console: Console) -> None:
     for entry in report.groups:
         path = " > ".join(escape(part) for part in entry.path)
         row = [escape(entry.name), entry.via]
+        if report.effective:
+            row.append(path or "[dim]-[/dim]")
+        row.append(escape(entry.dn))
+        table.add_row(*row)
+    console.print(table)
+
+
+def render_group_members(report: GroupMembersReport, *, console: Console) -> None:
+    """Print a group's members table: name, type, how acquired, path (008-ad-enhancements)."""
+    kind = "effective" if report.effective else "direct"
+    console.print(
+        f"[bold]{kind} members[/bold] of {escape(report.group)} "
+        f"({len(report.members)} member(s))"
+    )
+    if not report.members:
+        console.print("[dim]no members found[/dim]")
+        return
+    table = Table(box=None, pad_edge=False)
+    table.add_column("name", style="bold")
+    table.add_column("type")
+    table.add_column("via")
+    if report.effective:
+        table.add_column("path")
+    table.add_column("location", style="dim")
+    for entry in report.members:
+        path = " > ".join(escape(part) for part in entry.path)
+        row = [escape(entry.name), entry.object_type, entry.via]
         if report.effective:
             row.append(path or "[dim]-[/dim]")
         row.append(escape(entry.dn))

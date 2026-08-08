@@ -342,6 +342,60 @@ class MembershipVerdict:
 
 
 @dataclass(frozen=True)
+class GroupMemberEntry:
+    """One account or nested group found via a group's membership (008-ad-enhancements).
+
+    The ``member``-direction mirror of :class:`MembershipEntry` (``memberOf``-direction):
+    ``object_type`` is needed here because a group's members are heterogeneous (users,
+    computers, *and* groups), unlike a principal's group memberships, which are always
+    groups. There is no ``"primary"`` value for ``via`` — primary-group membership has no
+    group-side equivalent.
+    """
+
+    name: str
+    dn: str
+    object_type: str  # "user" | "computer" | "group"
+    via: str  # "direct" | "nested"
+    path: tuple[str, ...] = ()  # intermediate group names for a nested entry
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable mapping of this group-member entry."""
+        return {
+            "name": self.name,
+            "dn": self.dn,
+            "object_type": self.object_type,
+            "via": self.via,
+            "path": list(self.path),
+        }
+
+
+@dataclass(frozen=True)
+class GroupMembersReport:
+    """A group's members (direct, or effective with nesting resolved) (008-ad-enhancements).
+
+    The ``member``-direction mirror of :class:`MembershipReport`. Note ``effective``
+    defaults to ``True`` here (opt out via ``--direct``) — the inverse of
+    ``MembershipReport.effective``'s ``False`` default (opt in via ``-e/--effective``) —
+    because the most useful default answer to "who's in this group" already includes
+    nested membership.
+    """
+
+    group: str
+    dn: str
+    effective: bool
+    members: tuple[GroupMemberEntry, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable mapping matching the envelope's result."""
+        return {
+            "group": self.group,
+            "dn": self.dn,
+            "effective": self.effective,
+            "members": [member.to_dict() for member in self.members],
+        }
+
+
+@dataclass(frozen=True)
 class ObjectSummary:
     """Key attributes of one named directory object (user, group, or computer)."""
 

@@ -272,6 +272,16 @@ def default_ad_entries() -> dict[str, dict]:
             "cn": "ambig2",
             "sAMAccountName": "ambig",
         },
+        # 008-ad-enhancements US3: UPN/mail matching fixtures.
+        f"cn=dmailonly,{staff}": user(
+            "dmailonly", expiry=future, extra={"mail": "jane.doe@example.com"}
+        ),
+        f"cn=dupnshared,{staff}": user("dupnshared", expiry=future),
+        f"cn=dmailshared,{staff}": user(
+            "dmailshared",
+            expiry=future,
+            extra={"mail": "dupnshared@corp.example.com"},
+        ),
         f"cn=wks-042$,ou=Machines,{AD_BASE}": {
             "objectClass": ["top", "person", "user", "computer"],
             "cn": "wks-042$",

@@ -99,6 +99,14 @@ def test_user_ambiguous_is_usage_class(cli_directory):
     assert "more than one object" in result.output
 
 
+def test_user_resolves_by_mail_address(cli_directory):
+    """008-ad-enhancements US3: mail-only match resolves end-to-end via the CLI."""
+    result = invoke(["user", "jane.doe@example.com", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["result"]["sam_account_name"] == "dmailonly"
+
+
 def test_user_batch_mixed_partial(cli_directory):
     result = invoke(["user", "jdoe", "ddisabled", "no-such-user", "--jsonl"])
     assert result.exit_code == 7  # mixed outcomes -> PARTIAL (Art. IX)
@@ -309,6 +317,75 @@ def test_member_json_carries_verdict(cli_directory):
 def test_member_unknown_group_is_not_found(cli_directory):
     result = invoke(["member", "jdoe", "No Such Group"])
     assert result.exit_code == 16
+
+
+def test_groups_group_identifier_redirects(cli_directory):
+    """008-ad-enhancements US1: exit code unchanged (16); message/hint redirect."""
+    result = invoke(["groups", "VPN Users"])
+    assert result.exit_code == 16
+    assert "is a group, not a user or computer account" in result.output
+    assert "ad members" in result.output
+    assert "ad member" in result.output
+
+
+def test_groups_group_identifier_redirect_json_envelope(cli_directory):
+    result = invoke(["groups", "VPN Users", "--json"])
+    assert result.exit_code == 16
+    payload = json.loads(result.output)
+    assert payload["result"] is None
+    assert payload["error"]["code"] == "principal_is_group"
+    assert payload["error"]["hint"]
+
+
+# --- ad members (008-ad-enhancements US2) -----------------------------------------
+
+
+def test_members_default_effective_json(cli_directory):
+    result = invoke(["members", "Remote Access", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["command"] == "ad.members"
+    assert payload["result"]["effective"] is True
+    by_name = {m["name"]: m for m in payload["result"]["members"]}
+    assert by_name["VPN Users"]["via"] == "direct"
+    assert by_name["J Doe"]["via"] == "nested"
+    assert by_name["J Doe"]["path"] == ["VPN Users"]
+
+
+def test_members_direct_flag(cli_directory):
+    result = invoke(["members", "Remote Access", "--direct", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["result"]["effective"] is False
+    names = {m["name"] for m in payload["result"]["members"]}
+    assert names == {"VPN Users"}
+
+
+def test_members_human_table(cli_directory):
+    result = invoke(["members", "Remote Access", "--no-color"])
+    assert result.exit_code == 0
+    assert "VPN Users" in result.output
+    assert "J Doe" in result.output
+
+
+def test_members_batch_mixed_partial(cli_directory):
+    result = invoke(["members", "Remote Access", "No Such Group", "--jsonl"])
+    assert result.exit_code == 7
+    lines = [json.loads(line) for line in result.output.strip().splitlines()]
+    assert len(lines) == 2
+    assert lines[0]["result"] is not None
+    assert lines[1]["result"] is None
+    assert lines[1]["error"]["code"] == "principal_not_found"
+
+
+def test_members_stdin_batch(cli_directory):
+    result = invoke(
+        ["members", "-i", "-", "--jsonl"],
+        input="VPN Users\nCycle A\n",
+    )
+    assert result.exit_code == 0
+    lines = [json.loads(line) for line in result.output.strip().splitlines()]
+    assert [line["query"]["group"] for line in lines] == ["VPN Users", "Cycle A"]
 
 
 # --- ad show ---------------------------------------------------------------------

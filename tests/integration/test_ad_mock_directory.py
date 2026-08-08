@@ -88,6 +88,27 @@ def test_quickstart_membership_flow():
     assert invoke(["member", "jdoe", "Big Team"]).exit_code == 17
 
 
+def test_quickstart_members_flow():
+    """008-ad-enhancements US2: ad members mirrors ad groups --effective, reversed."""
+    effective = json.loads(invoke(["members", "Remote Access", "--json"]).output)
+    by_name = {m["name"]: m for m in effective["result"]["members"]}
+    assert by_name["VPN Users"]["via"] == "direct"
+    assert by_name["J Doe"]["via"] == "nested"
+    assert by_name["J Doe"]["path"] == ["VPN Users"]
+
+    direct = json.loads(
+        invoke(["members", "Remote Access", "--direct", "--json"]).output
+    )
+    assert {m["name"] for m in direct["result"]["members"]} == {"VPN Users"}
+
+    # The Cycle A <-> Cycle B topology terminates and never reappears as its own member.
+    cycle = json.loads(invoke(["members", "Cycle A", "--json"]).output)
+    names = {m["name"] for m in cycle["result"]["members"]}
+    assert names == {"Staff All", "Cycle B", "J Doe"}
+    dns = [m["dn"] for m in cycle["result"]["members"]]
+    assert len(dns) == len(set(dns))
+
+
 def test_big_group_membership_is_complete():
     payload = json.loads(
         invoke(["show", "Big Team", "--type", "group", "--json"]).output

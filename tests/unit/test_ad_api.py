@@ -14,6 +14,7 @@ from opskit.ad.errors import (
     AmbiguousPrincipal,
     AuthenticationFailed,
     DiscoveryError,
+    PrincipalIsGroup,
     PrincipalNotFound,
 )
 from opskit.ad.models import DirectoryConfig
@@ -98,6 +99,21 @@ class TestUserStatus:
             ad_client.user_status("no-such-user")
         assert excinfo.value.hint is not None
 
+    def test_group_identifier_redirects_instead_of_not_found(self, ad_client):
+        """008-ad-enhancements US1: a group name gets a redirect, not bare not-found."""
+        with pytest.raises(PrincipalIsGroup) as excinfo:
+            ad_client.user_status("VPN Users")
+        assert "VPN Users" in excinfo.value.message
+        assert excinfo.value.hint is not None
+        assert "ad members" in excinfo.value.hint
+        assert "ad member" in excinfo.value.hint
+
+    def test_truly_unknown_identifier_stays_generic_not_found(self, ad_client):
+        """Regression: FR-002 — no group match either -> unchanged PrincipalNotFound."""
+        with pytest.raises(PrincipalNotFound) as excinfo:
+            ad_client.user_status("not-a-user-or-a-group")
+        assert not isinstance(excinfo.value, PrincipalIsGroup)
+
     def test_ambiguous_principal_lists_candidates(self, ad_client):
         with pytest.raises(AmbiguousPrincipal) as excinfo:
             ad_client.user_status("ambig")
@@ -107,6 +123,23 @@ class TestUserStatus:
     def test_computer_account_is_a_valid_principal(self, ad_client):
         report = ad_client.user_status("wks-042$")
         assert report.dn.startswith("cn=wks-042$")
+
+    def test_mail_only_identifier_resolves(self, ad_client):
+        """008-ad-enhancements US3 (FR-008): mail differs from userPrincipalName."""
+        report = ad_client.user_status("jane.doe@example.com")
+        assert report.sam_account_name == "dmailonly"
+
+    def test_upn_and_mail_ambiguity_across_two_accounts(self, ad_client):
+        """FR-009: one account's UPN equals another's mail -> still ambiguous."""
+        with pytest.raises(AmbiguousPrincipal) as excinfo:
+            ad_client.user_status("dupnshared@corp.example.com")
+        assert "dupnshared" in excinfo.value.message
+        assert "dmailshared" in excinfo.value.message
+
+    def test_matching_both_attributes_on_one_entry_is_not_ambiguous(self, ad_client):
+        """FR-010: jdoe's mail and userPrincipalName are already identical in the fixture."""
+        report = ad_client.user_status("jdoe@corp.example.com")
+        assert report.sam_account_name == "jdoe"
 
     def test_session_is_reused(self, ad_config, ad_session_factory):
         calls: list[str] = []
@@ -154,6 +187,12 @@ class TestMembership:
         report = ad_client.membership("ddisabled")
         assert report.groups == ()
 
+    def test_group_identifier_redirects_instead_of_not_found(self, ad_client):
+        """008-ad-enhancements US1: same redirect applies to ad groups' lookup."""
+        with pytest.raises(PrincipalIsGroup) as excinfo:
+            ad_client.membership("VPN Users")
+        assert "VPN Users" in excinfo.value.message
+
 
 class TestIsMember:
     def test_direct_member(self, ad_client):
@@ -181,6 +220,57 @@ class TestIsMember:
     def test_unknown_group(self, ad_client):
         with pytest.raises(PrincipalNotFound, match="group"):
             ad_client.is_member("jdoe", "No Such Group")
+
+    def test_group_as_principal_redirects_instead_of_not_found(self, ad_client):
+        """008-ad-enhancements US1: the principal argument gets the redirect too."""
+        with pytest.raises(PrincipalIsGroup) as excinfo:
+            ad_client.is_member("VPN Users", "VPN Users")
+        assert "VPN Users" in excinfo.value.message
+
+
+class TestMembers:
+    """008-ad-enhancements US2: opskit.ad.AdClient.members() (the reverse of membership())."""
+
+    def test_default_is_effective_nested(self, ad_client):
+        report = ad_client.members("Remote Access")
+        assert report.effective is True
+        by_name = {entry.name: entry for entry in report.members}
+        assert by_name["VPN Users"].via == "direct"
+        assert by_name["VPN Users"].object_type == "group"
+        assert by_name["J Doe"].via == "nested"
+        assert by_name["J Doe"].path == ("VPN Users",)
+        assert by_name["J Doe"].object_type == "user"
+
+    def test_direct_only_excludes_nested(self, ad_client):
+        report = ad_client.members("Remote Access", effective=False)
+        assert report.effective is False
+        names = {entry.name for entry in report.members}
+        assert names == {"VPN Users"}
+
+    def test_cycle_terminates_and_reports_each_member_once(self, ad_client):
+        report = ad_client.members("Cycle A")
+        dns = [entry.dn.lower() for entry in report.members]
+        assert len(dns) == len(set(dns))
+        by_name = {entry.name: entry for entry in report.members}
+        assert by_name["Staff All"].via == "direct"
+        assert by_name["Cycle B"].via == "direct"
+        assert by_name["J Doe"].via == "nested"
+        assert by_name["J Doe"].path == ("Staff All",)
+        # Cycle A must not reappear as one of its own (in)direct members.
+        assert "Cycle A" not in by_name
+
+    def test_empty_group_is_success(self, ad_client):
+        report = ad_client.members("Domain Users")
+        assert report.members == ()
+
+    def test_unknown_group(self, ad_client):
+        with pytest.raises(PrincipalNotFound, match="group"):
+            ad_client.members("No Such Group")
+
+    def test_ambiguous_or_principal_only_identifier(self, ad_client):
+        """A group-scoped lookup for a pure user/computer identifier stays not-found."""
+        with pytest.raises(PrincipalNotFound):
+            ad_client.members("jdoe")
 
 
 class TestShow:
