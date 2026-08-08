@@ -140,11 +140,27 @@ def _find_one(
     """
     id_kind, value = classify_identifier(identifier)
     if id_kind is IdentifierKind.DN:
-        entry = session.read_entry(value, attributes=attributes)
+        read_attrs = (
+            attributes if "objectClass" in attributes else [*attributes, "objectClass"]
+        )
+        entry = session.read_entry(value, attributes=read_attrs)
         if entry is None:
             raise PrincipalNotFound(
                 f"no object found at DN: {value}",
                 hint="check the distinguished name",
+            )
+        if not _matches_kind_filter(entry, kind_filter):
+            if kind_filter == "principal" and _object_type_of(entry) == "group":
+                group_name = _first_rdn_value(entry.dn)
+                raise PrincipalIsGroup(
+                    f"'{identifier}' is a group, not a user or computer account",
+                    hint=f"see its members with: opskit ad members {group_name}; "
+                    f"or test membership with: "
+                    f"opskit ad member <principal> {group_name}",
+                )
+            raise PrincipalNotFound(
+                f"the object at this DN is not a {label}: {value}",
+                hint="check the distinguished name and expected object type",
             )
         return entry
     identifier_clause = _identifier_clause(id_kind, value)
@@ -704,6 +720,21 @@ def _object_type_of(entry: directory.DirectoryEntry) -> str:
     if "group" in classes:
         return "group"
     return "user"
+
+
+def _matches_kind_filter(entry: directory.DirectoryEntry, kind_filter: str) -> bool:
+    """Whether a DN-resolved entry's actual class satisfies the requested scope.
+
+    Mirrors ``_CLASS_FILTERS``' semantics for the DN lookup path (008-ad-enhancements):
+    a DN is an exact address, so unlike the search path it can't be narrowed by an LDAP
+    filter — the class has to be checked after the read.
+    """
+    if kind_filter == "any":
+        return True
+    object_type = _object_type_of(entry)
+    if kind_filter == "principal":
+        return object_type in ("user", "computer")
+    return object_type == kind_filter
 
 
 def _summarize(entry: directory.DirectoryEntry) -> ObjectSummary:

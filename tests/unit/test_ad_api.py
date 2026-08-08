@@ -114,6 +114,12 @@ class TestUserStatus:
             ad_client.user_status("not-a-user-or-a-group")
         assert not isinstance(excinfo.value, PrincipalIsGroup)
 
+    def test_group_dn_redirects_instead_of_not_found(self, ad_client):
+        """A DN identifier is exact, but the redirect must still apply (code review)."""
+        with pytest.raises(PrincipalIsGroup) as excinfo:
+            ad_client.user_status(f"cn=VPN Users,ou=Groups,{AD_BASE}")
+        assert "VPN Users" in excinfo.value.message
+
     def test_ambiguous_principal_lists_candidates(self, ad_client):
         with pytest.raises(AmbiguousPrincipal) as excinfo:
             ad_client.user_status("ambig")
@@ -247,6 +253,13 @@ class TestMembers:
         names = {entry.name for entry in report.members}
         assert names == {"VPN Users"}
 
+    def test_direct_only_skips_classification(self, ad_client):
+        """--direct's fast path reports object_type="unknown" (no per-member read)."""
+        report = ad_client.members("Remote Access", effective=False)
+        entry = next(iter(report.members))
+        assert entry.object_type == "unknown"
+        assert report.to_dict()["members"][0]["object_type"] == "unknown"
+
     def test_cycle_terminates_and_reports_each_member_once(self, ad_client):
         report = ad_client.members("Cycle A")
         dns = [entry.dn.lower() for entry in report.members]
@@ -271,6 +284,11 @@ class TestMembers:
         """A group-scoped lookup for a pure user/computer identifier stays not-found."""
         with pytest.raises(PrincipalNotFound):
             ad_client.members("jdoe")
+
+    def test_user_dn_is_not_found_not_silently_empty(self, ad_client):
+        """A user's DN passed to a group-scoped lookup must not resolve (code review)."""
+        with pytest.raises(PrincipalNotFound):
+            ad_client.members(f"cn=J Doe,ou=Staff,{AD_BASE}")
 
 
 class TestShow:

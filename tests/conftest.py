@@ -20,6 +20,20 @@ from opskit.net.errors import BindPermissionDenied, PortInUse
 from opskit.net.listener import Listener
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_terminal_env(monkeypatch):
+    """Rendering/CLI tests must be deterministic regardless of the host shell.
+
+    ``FORCE_COLOR``/``CLICOLOR_FORCE`` make rich treat any output stream — including a
+    captured ``StringIO`` or a CliRunner-piped stream — as a terminal, which re-enables
+    ANSI styling (e.g. explicit ``[bold]`` markup) that would otherwise never render to a
+    non-tty stream. Clearing them keeps `--no-color`/plain-text assertions stable in any
+    dev environment.
+    """
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
+
+
 class MockResolver:
     """A resolver stub: preset records per type, a global error, or per-type errors."""
 

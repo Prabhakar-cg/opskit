@@ -349,12 +349,16 @@ class GroupMemberEntry:
     ``object_type`` is needed here because a group's members are heterogeneous (users,
     computers, *and* groups), unlike a principal's group memberships, which are always
     groups. There is no ``"primary"`` value for ``via`` — primary-group membership has no
-    group-side equivalent.
+    group-side equivalent. ``object_type`` is ``"unknown"`` rather than one of the three
+    resolved classes in two cases: the direct-only (``--direct``) fast path deliberately
+    skips the per-member classification read (it never recurses, so nothing needs to know
+    whether a member is a group); and a member DN that no longer resolves (e.g. a stale
+    reference/referral outside this directory's view) can't be classified at all.
     """
 
     name: str
     dn: str
-    object_type: str  # "user" | "computer" | "group"
+    object_type: str  # "user" | "computer" | "group" | "unknown"
     via: str  # "direct" | "nested"
     path: tuple[str, ...] = ()  # intermediate group names for a nested entry
 
