@@ -83,7 +83,22 @@ Re-check `src/opskit/ad/README.md` for the new "Trusting a corporate CA" section
 
 ## Regression check (SC-005)
 
-Run the existing `ad check`/`ad user`/`ad show`/`ad groups`/`ad member` invocations from
-`specs/004-ad-diagnostics/quickstart.md` against the same fixtures/server used there; every
-one of them must produce identical output/exit codes to before this feature, since none of
-them exercise the four new/changed code paths above.
+`ad groups`, `ad member`, `ad user`, and `ad show` are themselves entry points to two of
+this feature's changed resolution paths (the group-redirect check and UPN/mail matching),
+so re-running *every* invocation from `specs/004-ad-diagnostics/quickstart.md` unmodified
+does not by itself prove nothing changed — some of those identifiers may now legitimately
+resolve differently. Use identifiers that provably bypass both changed paths instead:
+
+```bash
+opskit ad user jdoe                       # sAMAccountName form — not UPN/mail-shaped
+opskit ad groups jdoe --effective
+opskit ad member jdoe "VPN Users"
+opskit ad show wks-042$                   # a computer account, not a group identifier
+```
+
+Expected: identical output/exit codes to before this feature (these identifiers never
+reach `_find_one`'s group-redirect fallback query or the UPN/mail-widened filter). Separately,
+verify the *changed* paths behave as this spec's other scenarios describe — `opskit ad
+groups "VPN Users"` (a group identifier) and `opskit ad show jdoe@corp.example.com` (a
+UPN-shaped identifier) are expected to differ from pre-feature behavior, per Scenarios 1
+and 3 above.

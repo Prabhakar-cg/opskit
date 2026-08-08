@@ -36,7 +36,9 @@ dependencies = [
     "tomli>=2 ; python_version < '3.11'",
     # TLS category: handshake/chain retrieval + certificate parsing (PyCA-maintained).
     "pyopenssl>=24,<27",
-    "cryptography>=50,<51",  # 50.0.0 fixes PYSEC-2026-3552/3553/3554 (CVE-2026-69247)
+    # 50.0.0 fixes PYSEC-2026-3552/CVE-2026-69247, PYSEC-2026-3553/CVE-2026-69249,
+    # and PYSEC-2026-3554/CVE-2026-69248.
+    "cryptography>=50,<51",
     # Storage category: cross-platform volume/partition/filesystem enumeration + utilization
     # (no stdlib API covers this on Windows/macOS/Linux uniformly — research R1).
     "psutil>=6,<8",

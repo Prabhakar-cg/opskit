@@ -66,10 +66,12 @@ reached.
 
 1. **Given** a group `G1` with direct user member `alice` and nested child group `G2` (itself
    a member of `G1`), and `G2` has direct user member `bob`, **When** the engineer runs
-   `opskit ad members G1`, **Then** the output lists both `alice` (direct) and `bob` (via
-   `G2`), each showing its membership path.
-2. **Given** the same setup, **When** the engineer runs `opskit ad members G1 --direct` (or
-   the direct-only equivalent), **Then** only `alice` is listed.
+   `opskit ad members G1`, **Then** the output lists `alice` (direct), `G2` itself (direct —
+   it is a member of `G1`, same as `alice`), and `bob` (via `G2`), each showing its
+   membership path.
+2. **Given** the same setup, **When** the engineer runs `opskit ad members G1 --direct`,
+   **Then** only `alice` and `G2` are listed (both direct members of `G1`), and `bob` is not
+   (nested expansion did not run).
 3. **Given** a nested group cycle (`G1` contains `G2`, `G2` contains `G1`), **When** the
    engineer runs `opskit ad members G1`, **Then** the command completes without an infinite
    loop or crash and reports each distinct member once.
@@ -177,10 +179,14 @@ README has a section explaining how to obtain a corporate root CA PEM and use `-
 - **FR-002**: When the identifier matches neither a user/computer account nor a group, the
   system MUST continue to report the existing generic not-found error unchanged.
 - **FR-003**: The system MUST provide a new command, `ad members <group>`, that reports the
-  full set of accounts that ultimately belong to a named group, including members gained
-  through nested (transitive) group membership, by default.
-- **FR-004**: `ad members` MUST support a direct-only mode that reports only accounts listed
-  directly on the group, without nested expansion.
+  full set of members that ultimately belong to a named group, including members gained
+  through nested (transitive) group membership, by default. A nested group that is itself a
+  direct member of the queried group is included as an entry in its own right (it *is* a
+  direct member, literally), alongside — not instead of — the accounts reached through it;
+  the report is not filtered down to leaf user/computer accounts only.
+- **FR-004**: `ad members` MUST support a direct-only mode (`--direct`) that reports only
+  members listed directly on the group (which may themselves be users, computers, or
+  groups), without expanding any nested group found there.
 - **FR-005**: `ad members` MUST report, for each member reached only through nesting, the
   membership path (which intermediate group(s) it came through), consistent with how
   `ad groups --effective` already reports acquisition paths for the reverse direction.
@@ -210,9 +216,13 @@ README has a section explaining how to obtain a corporate root CA PEM and use `-
 - **FR-013**: The `opskit ad` documentation (README) MUST include a section explaining how to
   obtain a corporate root CA certificate and use it via `--ca-file`.
 - **FR-014**: This feature MUST NOT introduce any new network destination, write path, or
-  scanning/enumeration capability; every change is a refinement of existing read-only
-  single-target/batch lookups already scoped by object class and identifier (Article X
-  remains fully read-only for the `ad` category — no exception, unlike `file`).
+  *unscoped* directory scanning/cross-target discovery capability (e.g. no arbitrary
+  filters, no enumerate-everything mode). `ad members`' effective-mode traversal — recursing
+  into nested groups found *while resolving the one group the caller named* — is
+  target-scoped, not unscoped scanning, and is explicitly permitted (FR-003/FR-007); it
+  never reads any object other than the ones reachable from that single named starting
+  point. Article X remains fully read-only for the `ad` category — no write-path exception,
+  unlike `file`.
 - **FR-015**: Anonymous-bind hints and Global Catalog (port 3268/3269) cross-domain lookups
   are explicitly out of scope for this feature and MUST NOT be implemented as part of it.
 
@@ -266,6 +276,7 @@ README has a section explaining how to obtain a corporate root CA PEM and use `-
 - Anonymous-bind hints and Global Catalog cross-domain lookups, both flagged as lower-priority
   "possibly" candidates in the originating backlog, are deferred to a future feature and are
   not addressed here.
-- The exact new CLI flag name for `ad members`' direct-only mode (Acceptance Scenario 2 of
-  User Story 2) will mirror the naming convention already used for the equivalent concept
-  elsewhere in `ad` (i.e., the inverse of `--effective`), to be finalized during planning.
+- The CLI flag for `ad members`' direct-only mode is `--direct` (resolved during planning;
+  see `contracts/cli.md`) — the inverse of `ad groups`'s `-e/--effective` opt-in, since
+  `ad members` defaults to effective/nested rather than direct (see data-model.md's note on
+  this intentional asymmetry).

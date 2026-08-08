@@ -23,8 +23,10 @@ to a group.
 - Shared connection options (`-s/--server`, `-d/--domain`, `-U/--user`, `--starttls`,
   `--plaintext`, `--ca-file`, `--base-dn`, `--timeout`, `--json`/`--jsonl`/`--no-color`) are
   identical to every other `ad` command.
-- Human output renders as a rich table per group (name, object type, via, path), matching
-  the existing `render_membership` table convention; every directory-derived string is
+- Human output renders as a rich table per group (name, object type, via, and — for
+  effective/default mode only, matching `render_membership`'s existing convention of
+  showing `path` only under `--effective` — path); `--direct` output omits the path column
+  entirely rather than showing it empty. Every directory-derived string is
   `rich.markup.escape()`d.
 - Result: `GroupMembersReport`. Errors: same class-scoped resolution errors as
   `ad show --type group` (`PrincipalNotFound`/`AmbiguousPrincipal` when the group identifier
@@ -48,8 +50,10 @@ also matches against the directory's `mail` attribute, not `userPrincipalName` a
 existing ambiguous-match error (exit 2, usage class) still applies if the widened match
 resolves to more than one distinct object.
 
-## Changed: certificate-verification failure hint text (`ad check` and any command that
-connects, e.g. `ad user`/`ad groups`/`ad member`/`ad show`/`ad members`)
+## Changed: certificate-verification failure hint text
+
+Applies to `ad check` and any other command that connects (e.g. `ad user`/`ad groups`/
+`ad member`/`ad show`/`ad members`).
 
 No CLI surface change, no exit-code change (`CertificateInvalid`, exit 10, unchanged). The
 hint text accompanying a certificate verification failure now always notes that a WSL/Linux

@@ -19,7 +19,7 @@ which are always groups.
 |---|---|---|
 | `name` | `str` | First-RDN display name |
 | `dn` | `str` | Distinguished name |
-| `object_type` | `str` | `"user"` \| `"computer"` \| `"group"` |
+| `object_type` | `str` | `"user"` \| `"computer"` \| `"group"` \| `"unknown"` |
 | `via` | `str` | `"direct"` \| `"nested"` |
 | `path` | `tuple[str, ...]` | Intermediate group names for a nested entry (empty for direct) |
 
@@ -30,6 +30,11 @@ Validation: `via` is always `"direct"` for entries found directly on the queried
 `member` attribute, `"nested"` for anything reached only through an intermediate group;
 there is no `"primary"` value here (primary-group membership, R7 of 004, is a `memberOf`-
 direction concept with no group-side equivalent — a group has no "primary member").
+`object_type` is `"unknown"` in exactly two cases: (1) the `--direct`-only fast path, which
+deliberately skips the per-member `objectClass` classification read since nothing will be
+recursed into anyway (research E2's performance rationale); (2) a member DN that no longer
+resolves (a stale reference or a referral outside this directory's view) — this is reported,
+not silently dropped, so the member count stays complete even when one entry can't be typed.
 
 ## New: `GroupMembersReport`
 

@@ -40,9 +40,11 @@ from opskit.ad import PrincipalIsGroup  # subclass of AdError, exit_code = ExitC
 
 Raised instead of `PrincipalNotFound` by `AdClient.user_status()`, `AdClient.membership()`,
 and `AdClient.is_member()`'s principal-argument resolution, specifically when the given
-identifier resolves to exactly one group and no user/computer account. Carries the resolved
-group's name/DN and a hint pointing at `members()`/`is_member()` (the API-level equivalents
-of the CLI's `ad members`/`ad member`).
+identifier resolves to exactly one group and no user/computer account. The hint text is the
+same literal string for both library and CLI callers — it names the CLI commands
+(`opskit ad members <name>`, `opskit ad member <principal> <name>`; see data-model.md for
+the exact wording), since that's the actionable next step regardless of which surface
+raised the error; a library caller translates those to `members()`/`is_member()` themselves.
 
 ## Changed (no signature change): UPN-shaped identifier resolution
 

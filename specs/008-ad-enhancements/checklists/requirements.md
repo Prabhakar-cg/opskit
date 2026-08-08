@@ -31,10 +31,10 @@
 
 ## Notes
 
-- One open naming detail is flagged in Assumptions (the `ad members` direct-only flag name)
-  rather than as a [NEEDS CLARIFICATION] marker: it has an unambiguous reasonable default
-  (mirror the existing `--effective`/direct convention) and does not change feature scope, so
-  it is deferred to `/speckit-plan` rather than blocking spec approval.
+- The `ad members` direct-only flag name was left open at spec time (deferred to
+  `/speckit-plan` rather than a [NEEDS CLARIFICATION] marker, since it had an unambiguous
+  reasonable default and didn't affect scope) and has since been resolved as `--direct`
+  during planning — see `contracts/cli.md` and the Assumptions section of spec.md.
 - All four items were grounded against the current `src/opskit/ad/` implementation
   (`api.py`, `cli.py`, `directory.py`) before writing acceptance criteria, to keep the spec
   accurate to today's actual behavior (e.g. the exact "no user or computer account found"

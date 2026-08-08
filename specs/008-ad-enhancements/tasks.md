@@ -254,15 +254,30 @@ resulting hint.
 
 ### Within Each User Story
 
-- US1: T003 (error) → T004 (redirect logic, depends on T003) → T005 (export); tests T001/T002
-  depend on T004.
-- US2: T010 (models) → T011 (`_expand_members`/`members()`, depends on T010); T012 (output)
-  is independent of T011 but T013 (CLI) depends on both T011 and T012; T014 (export)
-  independent. Tests T006 depends on T010; T007 depends on T011 (via `AdClient.members`,
-  which needs `_find_one` unchanged — no new dependency there); T008/T009 depend on T013.
-- US3: T015 (fixture) is independent of T018 (code change); T016 depends on both T015 and
-  T018; T017 depends on T015 and T018.
-- US4: T020 (code) before T019 (tests); T021 (README) independent of both.
+Two different senses of "depends on" are used below — keep them distinct:
+
+- **Authoring order** (what `[P]` describes): whether a task's *file* can be *written*
+  without waiting on another task's file to exist. Test tasks are `[P]` against each other
+  and against not-yet-written implementation, per the test-first note above — write the
+  test, watch it fail, *then* implement.
+- **Passing order** (not what `[P]` describes): a test can only be run and observed passing
+  once the implementation it exercises exists. This is expected and does not contradict
+  `[P]` — it's the normal test-first cycle, not a same-file authoring conflict.
+
+- US1: T001/T002 (tests, `[P]` — independent files, written first) will not *pass* until
+  T003 → T004 (redirect logic) land; T005 (export) is `[P]`, independent of all four.
+- US2: T010 (models) → T011 (`_expand_members`/`members()`, depends on T010 to import from);
+  T012 (output) is `[P]`, independent of T011; T013 (CLI) depends on both T011 and T012 to
+  import from; T014 (export) is `[P]`, independent. Tests T006/T007/T008/T009 are `[P]`
+  against each other and against implementation (written any time), but only pass once
+  T010/T011/T013 respectively exist.
+- US3: T015 (fixture) and T018 (code change) are `[P]` — different files, neither imports
+  the other. T016/T017 (tests) are `[P]` against each other but only pass once both T015
+  and T018 exist.
+- US4: T020 (code) is not `[P]` relative to T019 (test) in the sense that T019 imports
+  nothing new — it calls the now-parametrized `_classify` helper, so it only passes once
+  T020 lands; both can be authored in either order. T021 (README) is `[P]`, independent of
+  both.
 
 ### Parallel Opportunities
 
@@ -321,9 +336,12 @@ Task: "Unit tests for _expand_members()/AdClient.members() in tests/unit/test_ad
 - Commit after each task or logical group; verify tests fail before implementing where a
   test task is listed ahead of its implementation task in numbering (T001/T002 precede T003/
   T004 deliberately — write them first, watch them fail, then implement).
-- **As-built**: T023's full-repo `uv run pytest` surfaced 15 pre-existing, unrelated
-  failures (rich-highlighting regression in `test_ad_output.py`/`test_net_cli.py`/
-  `test_net_output.py`/`test_storage_output.py`'s `_console()` test helpers — not caused by
-  this feature; see research.md's Addenda). Every `ad`-scoped test this feature added or
-  touched passes; `ruff format --check`, `ruff check`, `mypy src`, and `pyright` are all
-  clean repo-wide.
+- **As-built**: T023's full-repo `uv run pytest` surfaced 15 failures, reproducible only in
+  a shell with `FORCE_COLOR` set (this dev sandbox had it; CI does not and stayed green
+  throughout PR #50) — rich treats a `FORCE_COLOR`-forced stream as a terminal even when
+  it's a captured `StringIO`/`CliRunner` pipe, re-enabling styling that would otherwise
+  never render. Root-caused and fixed (see research.md's Addenda): `highlight=False,
+  force_terminal=False` added to the affected `_console()` test helpers, plus a new
+  `tests/conftest.py` autouse fixture clearing `FORCE_COLOR`/`CLICOLOR_FORCE` repo-wide.
+  `uv run pytest` now passes cleanly (1141 passed) even with `FORCE_COLOR=3` set. `ruff
+  format --check`, `ruff check`, `mypy src`, and `pyright` are all clean repo-wide.

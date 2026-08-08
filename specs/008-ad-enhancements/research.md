@@ -54,7 +54,9 @@ groups, unlike `memberOf` chains which are always groups):
   seed group — equivalently, a fast path that skips the objectClass lookups entirely and
   just lists the seed group's raw `member` values (no need to classify types when nothing
   will be expanded), keeping the common "just show me who's directly in this group" case
-  cheap.
+  cheap. Each entry's `object_type` is reported as `"unknown"` in this mode (data-model.md)
+  rather than guessed or omitted — the field is always present, its value is just honest
+  about what wasn't looked up.
 
 Each distinct member (by DN, case-insensitively) is reported exactly once, at the BFS
 shortest path — the same guarantee 004 already gives for `ad groups --effective`, now
@@ -79,6 +81,20 @@ only leaf user/computer accounts (rejected: FR-005's "membership path" requireme
 satisfied by keeping the intermediate group as a first-class entry too — matching how
 `ad groups --effective` keeps every intermediate group in its own output — and it avoids a
 "why is this member missing" surprise if a directly-listed nested group happens to be empty).
+
+**Known limitation, consciously deferred**: like `_expand_nested()` before it (004's R7),
+this traversal issues one `read_entry()` per node — one per direct/nested member to
+classify it, plus one per group dequeued to fetch its own `member` list. A group with many
+thousands of members means many thousands of serial LDAP round-trips before the command can
+render anything. This is not a new problem class introduced here; it's the same shape of
+cost the existing, already-shipped `ad groups --effective` traversal has always had, just
+now also paid by `ad members`'s effective mode. Batching those reads (e.g. one bounded
+`(|(distinguishedName=dn1)(distinguishedName=dn2)...)` query per BFS level instead of one
+read per node) is a legitimate follow-up optimization, but it's a genuine redesign of the
+traversal's I/O shape — bounding batch size, reassembling results back onto the right
+queue entries, handling partial-batch failures — not a small change, and touching it here
+would also mean revisiting `_expand_nested()` for consistency. Deferred to a dedicated
+follow-up rather than done as a drive-by inside this feature's diff.
 
 ## E3. UPN/mail matching — widen one filter clause; ambiguity rule unchanged
 
@@ -178,21 +194,25 @@ forbid for anything but opt-in smoke coverage).
   group via `_find_one()`, which silently dropped the `member` attribute needed for the
   traversal (caught immediately by T007's unit tests failing with an empty member list);
   fixed by requesting `["sAMAccountName", "member"]`.
-- **Pre-existing, unrelated test-suite issue discovered during the Phase 7 full-gate run**
-  (T023): running the complete `uv run pytest` suite (not just the `ad`-scoped files this
-  feature touches) surfaces 15 pre-existing failures in `tests/unit/test_ad_output.py`,
+- **Environment-dependent test-suite flake found and fixed during the Phase 7 full-gate
+  run** (T023): running the complete `uv run pytest` suite (not just the `ad`-scoped files
+  this feature touches) surfaced 15 failures in `tests/unit/test_ad_output.py`,
   `tests/unit/test_net_cli.py`, `tests/unit/test_net_output.py`, and
-  `tests/unit/test_storage_output.py`. All 15 are the same root cause: those test files'
-  own `_console()` helpers build a raw `rich.console.Console(...)` directly instead of via
-  `opskit.core.output.make_console` (which already sets `highlight=False`), so rich's
-  default `ReprHighlighter` now bolds numbers/paths/parentheses in the captured plain-text
-  output — likely surfaced by the `rich>=13,<16` range resolving to a newer 14.x release.
-  This is **not caused by this feature**: `pyproject.toml`/`uv.lock` are byte-identical to
-  `origin/main` on this branch, none of the four affected test files were touched by
-  008-ad-enhancements, and the two affected `ad` cases (`TestRenderStatus`,
-  `TestRenderObject`) exercise `render_status`/`render_object`/`_summarize`, none of which
-  this feature modifies (`render_group_members` — the one function this feature adds to
-  `output.py` — has no failing test). Every `ad`-scoped test this feature added or touched
-  passes; the 15 failures are pre-existing on `main` and are a separate, follow-up fix (add
-  `highlight=False` to each affected test file's `_console()` helper, or standardize them
-  on `make_console`) — out of scope for this feature to fix.
+  `tests/unit/test_storage_output.py` — but only in a shell with `FORCE_COLOR` set (this
+  dev sandbox had `FORCE_COLOR=3`; real CI does not set it, and PR #50's full CI matrix was
+  green throughout). Root cause, confirmed empirically: `FORCE_COLOR` makes rich treat any
+  output stream — including a captured `io.StringIO()` or a `CliRunner`-piped stream — as a
+  terminal, which re-enables both the default `ReprHighlighter` (auto-bolding numbers/
+  parens/paths) and any explicit `[bold]`/style markup in the source, neither of which rich
+  would ever emit to a genuinely non-tty stream. `no_color=True` alone does not prevent
+  this — it suppresses color, not text attributes like bold. Fixed two ways: (1) the
+  `_console()` test helpers in the four affected files now also pass `highlight=False,
+  force_terminal=False`, making them deterministic regardless of the invoking shell; (2) a
+  new autouse fixture in `tests/conftest.py` (`_deterministic_terminal_env`) clears
+  `FORCE_COLOR`/`CLICOLOR_FORCE` for every test, closing the same gap for any
+  `CliRunner`-driven CLI test repo-wide (which a per-file `_console()` fix can't reach,
+  since those tests exercise the real `make_console()` path through the app, not a
+  test-constructed `Console`). `uv run pytest` now passes cleanly (1141 passed) with
+  `FORCE_COLOR=3` still set in the environment. Not a defect introduced by this feature —
+  the affected files predate it — but fixed here rather than left as a residual footgun for
+  the next contributor running tests in a color-forcing shell.

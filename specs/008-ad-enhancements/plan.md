@@ -14,15 +14,24 @@ principal-scoped lookup's identifier turns out to be a group; (2) a new `ad memb
 also match the `mail` attribute, not `userPrincipalName` alone; (4) sharper certificate-
 verification hint text (StartTLS does not bypass verification; WSL does not inherit the
 Windows trust store) plus a new README section on trusting a corporate CA. No new runtime
-dependencies, no new top-level category, no new exit codes — all four changes extend
-`src/opskit/ad/{api,cli,directory,errors,models,output}.py` and
-`src/opskit/ad/README.md` in place.
+dependency needed by the feature itself, no new top-level category, no new exit codes — all
+four changes extend `src/opskit/ad/{__init__,api,cli,directory,errors,models,output}.py`
+and `src/opskit/ad/README.md` in place (the `__init__.py` change is export-only: `members()`,
+`GroupMemberEntry`, `GroupMembersReport`, `PrincipalIsGroup` added to `__all__` per T005/T014).
+Separately, during Phase 7 gate validation a pre-existing `cryptography` CVE was found and
+fixed (see Constraints below) — unrelated to the feature's own logic but pulled forward onto
+this branch to keep its CI green.
 
 ## Technical Context
 
-**Language/Version**: Python (project floor 3.9; mypy targets `>=3.10`, pyright targets 3.9)
+**Language/Version**: Python (project floor 3.9; mypy configures `python_version = "3.10"`
+exactly in `pyproject.toml`; pyright and the CI compatibility leg cover 3.9)
 
-**Primary Dependencies**: `ldap3` (already an `opskit[ad]` extra) — no new dependency
+**Primary Dependencies**: `ldap3` (already an `opskit[ad]` extra) — no new dependency added
+by this feature. Unrelated to the feature's logic but landed on this branch: `cryptography`
+bumped `48.0.1` → `50.0.0` (fixes PYSEC-2026-3552/3553/3554), pulling `pyopenssl` to `26.4.0`
+as its dependent; `uv run pip-audit` clean afterward, `tls` category's full suite re-verified
+green, no Python 3.9 compatibility impact.
 
 **Storage**: N/A (read-only LDAP queries against the caller's directory)
 
