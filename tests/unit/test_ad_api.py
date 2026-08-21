@@ -14,6 +14,7 @@ from opskit.ad.errors import (
     AmbiguousPrincipal,
     AuthenticationFailed,
     DiscoveryError,
+    PermissionDenied,
     PrincipalIsGroup,
     PrincipalNotFound,
 )
@@ -119,6 +120,14 @@ class TestUserStatus:
         with pytest.raises(PrincipalIsGroup) as excinfo:
             ad_client.user_status(f"cn=VPN Users,ou=Groups,{AD_BASE}")
         assert "VPN Users" in excinfo.value.message
+
+    def test_dn_and_search_redirect_hints_cannot_drift(self, ad_client):
+        """The DN-form and search-form redirects share one message/hint (code review)."""
+        with pytest.raises(PrincipalIsGroup) as by_name:
+            ad_client.user_status("VPN Users")
+        with pytest.raises(PrincipalIsGroup) as by_dn:
+            ad_client.user_status(f"cn=VPN Users,ou=Groups,{AD_BASE}")
+        assert by_name.value.hint == by_dn.value.hint
 
     def test_ambiguous_principal_lists_candidates(self, ad_client):
         with pytest.raises(AmbiguousPrincipal) as excinfo:
@@ -289,6 +298,126 @@ class TestMembers:
         """A user's DN passed to a group-scoped lookup must not resolve (code review)."""
         with pytest.raises(PrincipalNotFound):
             ad_client.members(f"cn=J Doe,ou=Staff,{AD_BASE}")
+
+
+class TestMembersPermissionResilience:
+    """A permission failure on one branch degrades that branch, never aborts (code review)."""
+
+    def _deny_read(
+        self, monkeypatch, *, dn: str, only_attributes: list[str] | None = None
+    ):
+        """Make DirectorySession.read_entry raise PermissionDenied for one DN."""
+        original_read_entry = DirectorySession.read_entry
+        target = dn.lower()
+
+        def patched(self, target_dn, *, attributes):
+            if target_dn.lower() == target and (
+                only_attributes is None or attributes == only_attributes
+            ):
+                raise PermissionDenied(
+                    "the bound account is not authorized to read this"
+                )
+            return original_read_entry(self, target_dn, attributes=attributes)
+
+        monkeypatch.setattr(DirectorySession, "read_entry", patched)
+
+    def test_unreadable_member_degrades_to_unknown_not_abort(
+        self, ad_client, monkeypatch
+    ):
+        """One member the bind account can't read must not abort the whole query."""
+        self._deny_read(
+            monkeypatch,
+            dn=f"cn=J Doe,ou=Staff,{AD_BASE}",
+            only_attributes=["objectClass"],
+        )
+        report = ad_client.members("Remote Access")  # effective=True by default
+        by_name = {entry.name: entry for entry in report.members}
+        assert by_name["VPN Users"].object_type == "group"
+        assert by_name["J Doe"].via == "nested"
+        assert by_name["J Doe"].object_type == "unknown"  # degraded, not raised
+
+    def test_unreadable_nested_group_skips_branch_not_abort(
+        self, ad_client, monkeypatch
+    ):
+        """A permission failure expanding a nested group must not abort other branches."""
+        self._deny_read(
+            monkeypatch,
+            dn=f"cn=VPN Users,ou=Groups,{AD_BASE}",
+            only_attributes=["member"],
+        )
+        report = ad_client.members("Remote Access")
+        names = {entry.name for entry in report.members}
+        assert "VPN Users" in names  # direct membership still reported
+        assert "J Doe" not in names  # nested branch silently skipped, not raised
+
+    def test_group_redirect_probe_permission_denied_falls_through_to_not_found(
+        self, ad_client, monkeypatch
+    ):
+        """If the redirect probe itself can't search, don't mask not-found with it.
+
+        The primary (user/computer) search for a genuinely-unknown name still
+        succeeds empty; only the follow-up "is this actually a group?" probe is
+        denied — that must not surface as PermissionDenied instead of the plain
+        PrincipalNotFound a truly-unknown name deserves.
+        """
+        original_search = DirectorySession.search
+
+        def deny_group_search(self, *, base, ldap_filter, attributes, scope="subtree"):
+            if "objectClass=group" in ldap_filter:
+                raise PermissionDenied(
+                    "the bound account is not authorized to read this"
+                )
+            return original_search(
+                self,
+                base=base,
+                ldap_filter=ldap_filter,
+                attributes=attributes,
+                scope=scope,
+            )
+
+        monkeypatch.setattr(DirectorySession, "search", deny_group_search)
+        with pytest.raises(PrincipalNotFound):
+            ad_client.user_status("no-such-user-at-all")
+
+
+class TestKindFilterParity:
+    """_CLASS_FILTERS (search path) and _matches_kind_filter (DN path) must agree.
+
+    Regression guard (code review): the two are independent encodings of the same
+    object-class scoping, so a kind_filter added to one without the other would
+    silently misclassify every DN-form lookup of that kind.
+    """
+
+    @pytest.mark.parametrize(
+        "identifier,expected_type",
+        [("jdoe", "user"), ("wks-042$", "computer"), ("VPN Users", "group")],
+    )
+    def test_search_and_dn_path_scoping_agree(
+        self, ad_client, identifier, expected_type
+    ):
+        session = ad_client._ensure()
+        entry = api._find_one(
+            session,
+            identifier,
+            kind_filter="any",
+            attributes=["objectClass"],
+            label="object",
+        )
+        assert api._object_type_of(entry) == expected_type
+        id_kind, value = api.classify_identifier(identifier)
+        clause = api._identifier_clause(id_kind, value)
+        for kind_filter, ldap_clause in api._CLASS_FILTERS.items():
+            found = session.search(
+                base=session.default_base(),
+                ldap_filter=f"(&{ldap_clause}{clause})",
+                attributes=["objectClass"],
+            )
+            search_matches = len(found) == 1
+            dn_matches = api._matches_kind_filter(entry, kind_filter)
+            assert search_matches == dn_matches, (
+                f"kind_filter={kind_filter!r} disagrees for {expected_type} "
+                f"{identifier!r}: search-path={search_matches} dn-path={dn_matches}"
+            )
 
 
 class TestShow:

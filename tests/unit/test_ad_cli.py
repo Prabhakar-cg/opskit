@@ -218,7 +218,8 @@ def test_password_prompted_on_tty(monkeypatch, ad_session_factory):
     monkeypatch.setattr("opskit.ad.cli.typer.prompt", fake_prompt)
     result = invoke(["user", "jdoe"])
     assert result.exit_code == 0
-    assert prompts and AD_BIND_DN in prompts[0]
+    assert prompts
+    assert AD_BIND_DN in prompts[0]
 
 
 def test_anonymous_when_no_bind_user(cli_directory, monkeypatch):

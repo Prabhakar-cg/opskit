@@ -27,6 +27,7 @@ from opskit.ad.models import (
 _YES = "[green]yes[/green]"
 _NO = "[red]no[/red]"
 _UNAVAILABLE = "[dim]not available from this server[/dim]"
+_DASH = "[dim]-[/dim]"
 
 _BLOCKER_TEXT = {
     "disabled": "account is disabled — an administrator must re-enable it",
@@ -40,7 +41,7 @@ _BLOCKER_TEXT = {
 def _when(value: datetime | None) -> str:
     """Render a timestamp (dimmed placeholder when unknown)."""
     if value is None:
-        return "[dim]-[/dim]"
+        return _DASH
     return escape(value.strftime("%Y-%m-%d %H:%M:%S %Z"))
 
 
@@ -107,6 +108,25 @@ def render_status(report: AccountStatusReport, *, console: Console) -> None:
         )
 
 
+def _render_relationship_table(
+    console: Console, *, columns: list[str], rows: list[list[str]]
+) -> None:
+    """Shared table shape for the membership/group-members views (008 US2).
+
+    Both `ad member`/`ad members` walk a name/via/[path]/location relationship over
+    already-escaped cell values; this is the one place that builds the common
+    ``Table`` (bold first column, dim last column) so the two views can't drift.
+    """
+    table = Table(box=None, pad_edge=False)
+    table.add_column(columns[0], style="bold")
+    for column in columns[1:-1]:
+        table.add_column(column)
+    table.add_column(columns[-1], style="dim")
+    for row in rows:
+        table.add_row(*row)
+    console.print(table)
+
+
 def render_membership(report: MembershipReport, *, console: Console) -> None:
     """Print the membership table: group, how acquired, path, location (US2)."""
     kind = "effective" if report.effective else "direct"
@@ -117,20 +137,16 @@ def render_membership(report: MembershipReport, *, console: Console) -> None:
     if not report.groups:
         console.print("[dim]no group memberships found[/dim]")
         return
-    table = Table(box=None, pad_edge=False)
-    table.add_column("group", style="bold")
-    table.add_column("via")
-    if report.effective:
-        table.add_column("path")
-    table.add_column("location", style="dim")
+    columns = ["group", "via", *(["path"] if report.effective else []), "location"]
+    rows: list[list[str]] = []
     for entry in report.groups:
         path = " > ".join(escape(part) for part in entry.path)
         row = [escape(entry.name), entry.via]
         if report.effective:
-            row.append(path or "[dim]-[/dim]")
+            row.append(path or _DASH)
         row.append(escape(entry.dn))
-        table.add_row(*row)
-    console.print(table)
+        rows.append(row)
+    _render_relationship_table(console, columns=columns, rows=rows)
 
 
 def render_group_members(report: GroupMembersReport, *, console: Console) -> None:
@@ -143,21 +159,22 @@ def render_group_members(report: GroupMembersReport, *, console: Console) -> Non
     if not report.members:
         console.print("[dim]no members found[/dim]")
         return
-    table = Table(box=None, pad_edge=False)
-    table.add_column("name", style="bold")
-    table.add_column("type")
-    table.add_column("via")
-    if report.effective:
-        table.add_column("path")
-    table.add_column("location", style="dim")
+    columns = [
+        "name",
+        "type",
+        "via",
+        *(["path"] if report.effective else []),
+        "location",
+    ]
+    rows: list[list[str]] = []
     for entry in report.members:
         path = " > ".join(escape(part) for part in entry.path)
         row = [escape(entry.name), entry.object_type, entry.via]
         if report.effective:
-            row.append(path or "[dim]-[/dim]")
+            row.append(path or _DASH)
         row.append(escape(entry.dn))
-        table.add_row(*row)
-    console.print(table)
+        rows.append(row)
+    _render_relationship_table(console, columns=columns, rows=rows)
 
 
 def render_member_verdict(verdict: MembershipVerdict, *, console: Console) -> None:

@@ -16,7 +16,12 @@ from typing import Any, Callable
 
 from opskit.ad import attributes as adattr
 from opskit.ad import directory, discovery
-from opskit.ad.errors import AmbiguousPrincipal, PrincipalIsGroup, PrincipalNotFound
+from opskit.ad.errors import (
+    AdError,
+    AmbiguousPrincipal,
+    PrincipalIsGroup,
+    PrincipalNotFound,
+)
 from opskit.ad.models import (
     AccountStatusReport,
     ConnectivityReport,
@@ -122,6 +127,19 @@ def _identifier_clause(kind: IdentifierKind, value: str) -> str:
     return f"(|(sAMAccountName={escaped})(cn={escaped}))"
 
 
+def _raise_group_redirect(identifier: str, group_name: str) -> None:
+    """Raise the shared PrincipalIsGroup redirect (008-ad-enhancements FR-001).
+
+    Both the DN-form and search-form paths in :func:`_find_one` land here so the
+    message/hint can't drift between them.
+    """
+    raise PrincipalIsGroup(
+        f"'{identifier}' is a group, not a user or computer account",
+        hint=f"see its members with: opskit ad members {group_name}; "
+        f"or test membership with: opskit ad member <principal> {group_name}",
+    )
+
+
 def _find_one(
     session: directory.DirectorySession,
     identifier: str,
@@ -132,6 +150,9 @@ def _find_one(
 ) -> directory.DirectoryEntry:
     """Resolve one named object, refusing to guess on ambiguity (R6, FR-014).
 
+    Dispatches on identifier form: a DN is an exact address (one read); anything
+    else is an LDAP search that must resolve to exactly one object.
+
     Raises:
         PrincipalNotFound: When nothing matches.
         PrincipalIsGroup: When a principal-scoped lookup finds no user/computer account
@@ -140,29 +161,65 @@ def _find_one(
     """
     id_kind, value = classify_identifier(identifier)
     if id_kind is IdentifierKind.DN:
-        read_attrs = (
-            attributes if "objectClass" in attributes else [*attributes, "objectClass"]
+        return _find_by_dn(
+            session,
+            identifier,
+            value,
+            kind_filter=kind_filter,
+            attributes=attributes,
+            label=label,
         )
-        entry = session.read_entry(value, attributes=read_attrs)
-        if entry is None:
-            raise PrincipalNotFound(
-                f"no object found at DN: {value}",
-                hint="check the distinguished name",
-            )
-        if not _matches_kind_filter(entry, kind_filter):
-            if kind_filter == "principal" and _object_type_of(entry) == "group":
-                group_name = _first_rdn_value(entry.dn)
-                raise PrincipalIsGroup(
-                    f"'{identifier}' is a group, not a user or computer account",
-                    hint=f"see its members with: opskit ad members {group_name}; "
-                    f"or test membership with: "
-                    f"opskit ad member <principal> {group_name}",
-                )
-            raise PrincipalNotFound(
-                f"the object at this DN is not a {label}: {value}",
-                hint="check the distinguished name and expected object type",
-            )
+    return _find_by_search(
+        session,
+        identifier,
+        id_kind,
+        value,
+        kind_filter=kind_filter,
+        attributes=attributes,
+        label=label,
+    )
+
+
+def _find_by_dn(
+    session: directory.DirectorySession,
+    identifier: str,
+    dn: str,
+    *,
+    kind_filter: str,
+    attributes: list[str],
+    label: str,
+) -> directory.DirectoryEntry:
+    """Resolve a DN-form identifier: one read, then check it matches the requested scope."""
+    read_attrs = (
+        attributes if "objectClass" in attributes else [*attributes, "objectClass"]
+    )
+    entry = session.read_entry(dn, attributes=read_attrs)
+    if entry is None:
+        raise PrincipalNotFound(
+            f"no object found at DN: {dn}",
+            hint="check the distinguished name",
+        )
+    if _matches_kind_filter(entry, kind_filter):
         return entry
+    if kind_filter == "principal" and _object_type_of(entry) == "group":
+        _raise_group_redirect(identifier, _first_rdn_value(entry.dn))
+    raise PrincipalNotFound(
+        f"the object at this DN is not a {label}: {dn}",
+        hint="check the distinguished name and expected object type",
+    )
+
+
+def _find_by_search(
+    session: directory.DirectorySession,
+    identifier: str,
+    id_kind: IdentifierKind,
+    value: str,
+    *,
+    kind_filter: str,
+    attributes: list[str],
+    label: str,
+) -> directory.DirectoryEntry:
+    """Resolve a non-DN identifier by LDAP search; refuse to guess on ambiguity (R6)."""
     identifier_clause = _identifier_clause(id_kind, value)
     ldap_filter = f"(&{_CLASS_FILTERS[kind_filter]}{identifier_clause})"
     entries = session.search(
@@ -171,19 +228,7 @@ def _find_one(
         attributes=attributes,
     )
     if not entries:
-        if kind_filter == "principal":
-            group_match = session.search(
-                base=session.default_base(),
-                ldap_filter=f"(&{_CLASS_FILTERS['group']}{identifier_clause})",
-                attributes=["sAMAccountName"],
-            )
-            if len(group_match) == 1:
-                group_name = _first_rdn_value(group_match[0].dn)
-                raise PrincipalIsGroup(
-                    f"'{identifier}' is a group, not a user or computer account",
-                    hint=f"see its members with: opskit ad members {group_name}; "
-                    f"or test membership with: opskit ad member <principal> {group_name}",
-                )
+        _maybe_redirect_to_group(session, identifier, kind_filter, identifier_clause)
         raise PrincipalNotFound(
             f"no {label} found matching: {identifier}",
             hint="check the spelling and identifier form (name, user@domain, or DN); "
@@ -196,6 +241,32 @@ def _find_one(
             hint="disambiguate by passing the distinguished name",
         )
     return entries[0]
+
+
+def _maybe_redirect_to_group(
+    session: directory.DirectorySession,
+    identifier: str,
+    kind_filter: str,
+    identifier_clause: str,
+) -> None:
+    """Raise the group redirect if a principal-scoped search actually matched one group.
+
+    Best-effort: if the bound account can't even search for groups, silently return
+    and let the caller's plain not-found stand, rather than letting an unrelated
+    PermissionDenied mask it (008-ad-enhancements).
+    """
+    if kind_filter != "principal":
+        return
+    try:
+        group_match = session.search(
+            base=session.default_base(),
+            ldap_filter=f"(&{_CLASS_FILTERS['group']}{identifier_clause})",
+            attributes=["sAMAccountName"],
+        )
+    except AdError:
+        return
+    if len(group_match) == 1:
+        _raise_group_redirect(identifier, _first_rdn_value(group_match[0].dn))
 
 
 def _derive_status(  # noqa: PLR0912, PLR0915 - a flat fact-derivation table (R5); splitting it would obscure the per-fact fallback rules
@@ -596,6 +667,27 @@ class AdClient:
         )
 
 
+def _read_entry_or_none(
+    session: directory.DirectorySession, dn: str, *, attributes: list[str]
+) -> directory.DirectoryEntry | None:
+    """``read_entry``, treating a permission/directory failure the same as "not found".
+
+    A single unreadable branch (delegated ACL, foreign-security-principal, cross-domain
+    reference) must not abort the whole members walk (008-ad-enhancements FR-006) — it
+    already degrades gracefully for a stale/no-such-object DN; this extends the same
+    degradation to directory errors raised while reading it.
+
+    Note: classifying/expanding members is necessarily one LDAP read per DN — LDAP has
+    no "read many arbitrary DNs" primitive, and a ``(distinguishedName=...)`` OR-filter
+    is not a portable substitute (some directories/backends, including this project's
+    own mock, don't support filtering on it at all).
+    """
+    try:
+        return session.read_entry(dn, attributes=attributes)
+    except AdError:
+        return None
+
+
 def _direct_members(
     session: directory.DirectorySession,
     entry: directory.DirectoryEntry,
@@ -613,7 +705,9 @@ def _direct_members(
         member_dn = str(raw)
         object_type = "unknown"
         if classify:
-            member_entry = session.read_entry(member_dn, attributes=["objectClass"])
+            member_entry = _read_entry_or_none(
+                session, member_dn, attributes=["objectClass"]
+            )
             if member_entry is not None:
                 object_type = _object_type_of(member_entry)
         members.append(
@@ -648,8 +742,8 @@ def _expand_members(
     )
     while queue:
         dn, name, path = queue.popleft()
-        group_entry = session.read_entry(dn, attributes=["member"])
-        if group_entry is None:  # e.g. a referral outside this directory's view
+        group_entry = _read_entry_or_none(session, dn, attributes=["member"])
+        if group_entry is None:  # e.g. a referral, or now-unreadable/removed
             continue
         chain = (*path, name)
         for raw in group_entry.values("member"):
@@ -659,7 +753,9 @@ def _expand_members(
                 continue
             visited.add(key)
             member_name = _first_rdn_value(member_dn)
-            member_read = session.read_entry(member_dn, attributes=["objectClass"])
+            member_read = _read_entry_or_none(
+                session, member_dn, attributes=["objectClass"]
+            )
             object_type = (
                 _object_type_of(member_read) if member_read is not None else "unknown"
             )
