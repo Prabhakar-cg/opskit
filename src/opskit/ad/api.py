@@ -236,7 +236,10 @@ def _find_by_dn(
         )
     if _matches_kind_filter(entry, kind_filter):
         return entry
-    if kind_filter == "principal" and _object_type_of(entry) == "group":
+    if kind_filter == "principal":
+        # _matches_kind_filter already ruled out "user"/"computer" above, and
+        # _object_type_of never returns anything but user/computer/group — so this
+        # is necessarily a group.
         _raise_group_redirect(identifier, _first_rdn_value(entry.dn))
     raise PrincipalNotFound(
         f"the object at this DN is not a {label}: {dn}",
