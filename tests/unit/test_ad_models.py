@@ -160,3 +160,29 @@ class TestParseServer:
             parse_server("  ")
         with pytest.raises(UsageError):
             parse_server("dc01:")
+
+    def test_ldap_scheme_is_stripped(self):
+        assert parse_server("ldap://dc01.corp.example.com") == (
+            "dc01.corp.example.com",
+            None,
+        )
+
+    def test_ldaps_scheme_with_port_is_stripped(self):
+        assert parse_server("ldaps://dc01:636") == ("dc01", 636)
+
+    def test_scheme_is_case_insensitive(self):
+        assert parse_server("LDAPS://dc01:636") == ("dc01", 636)
+
+    def test_scheme_with_ipv6_bracket(self):
+        assert parse_server("ldaps://[2001:db8::7]:636") == ("2001:db8::7", 636)
+
+    def test_scheme_with_trailing_slash_is_allowed(self):
+        assert parse_server("ldap://dc01:389/") == ("dc01", 389)
+
+    def test_scheme_with_path_is_rejected(self):
+        with pytest.raises(UsageError, match="unexpected path"):
+            parse_server("ldap://dc01/dc=example,dc=com")
+
+    def test_scheme_with_empty_host_is_usage_error(self):
+        with pytest.raises(UsageError):
+            parse_server("ldap://")

@@ -37,7 +37,7 @@ dependencies = [
     # TLS category: handshake/chain retrieval + certificate parsing (PyCA-maintained).
     "pyopenssl>=24,<27",
     # 50.0.0 fixes PYSEC-2026-3552/CVE-2026-69247, PYSEC-2026-3553/CVE-2026-69249,
-    # and PYSEC-2026-3554/CVE-2026-69248.
+    # and PYSEC-2026-3554/CVE-2026-69248 (supersedes the earlier 48.0.1 GHSA-537c-gmf6-5ccf fix).
     "cryptography>=50,<51",
     # Storage category: cross-platform volume/partition/filesystem enumeration + utilization
     # (no stdlib API covers this on Windows/macOS/Linux uniformly — research R1).
