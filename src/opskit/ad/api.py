@@ -33,6 +33,7 @@ from opskit.ad.models import (
 )
 from opskit.core.errors import OpskitError, UsageError
 from opskit.net.errors import ConnectRefused, ConnectTimeout, ResolutionError
+from opskit.tls.errors import CertificateInvalid, HandshakeError
 
 # Injectable session factory (testing seam, like dns's resolver=): mirrors
 # directory.connect_session's signature.
@@ -82,6 +83,40 @@ _CLASS_FILTERS = {
 }
 
 OBJECT_TYPES = ("auto", "user", "group", "computer")
+
+
+def _failure_with_discovery_hint(
+    error: CertificateInvalid | HandshakeError,
+    *,
+    security: str,
+    port: int,
+) -> CertificateInvalid | HandshakeError:
+    """Add targeted guidance when domain discovery resolves a failing DC.
+
+    ``security``/``port`` are the mode and port that were actually tried, so the
+    retry command names the real candidate instead of an assumed LDAPS/636 pairing.
+    Re-wraps the same error with the original message/findings/exit semantics intact,
+    only appending the retry hint.
+    """
+    if isinstance(error, CertificateInvalid):
+        message = (
+            f"retry with --server <dc-fqdn>:{port} and provide --ca-file "
+            "for your domain's CA"
+        )
+        hint = f"{error.hint}; {message}" if error.hint else message
+        return CertificateInvalid(error.message, hint=hint, findings=error.findings)
+    if security == "starttls":
+        message = (
+            "retry with --server <dc-fqdn>:636 (default LDAPS), or confirm "
+            "StartTLS is enabled on the domain controller"
+        )
+    else:
+        message = (
+            "retry with --server <dc-fqdn>:389 --starttls, or confirm LDAPS "
+            "is enabled on the domain controller"
+        )
+    hint = f"{error.hint}; {message}" if error.hint else message
+    return HandshakeError(error.message, hint=hint)
 
 
 def _first_rdn_value(dn: str) -> str:
@@ -353,6 +388,14 @@ class AdClient:
             except (ConnectRefused, ConnectTimeout, ResolutionError) as exc:
                 last_error = exc  # reach-class failure: try the next candidate
                 continue
+            except OpskitError as exc:
+                if discovered and isinstance(exc, (CertificateInvalid, HandshakeError)):
+                    # discovery picked a DC that doesn't support the requested security;
+                    # wrap with a hint to retry with an explicit --server
+                    raise _failure_with_discovery_hint(
+                        exc, security=self._config.security, port=port
+                    ) from exc
+                raise  # non-reach failure: don't try the next candidate
             return session, tried, discovered
         assert last_error is not None  # noqa: S101 - candidates is never empty
         raise last_error

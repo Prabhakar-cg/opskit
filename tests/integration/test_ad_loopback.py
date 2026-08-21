@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 from opskit.ad import api
 from opskit.cli import app
 from opskit.net.errors import ConnectRefused, ConnectTimeout, NetError
-from opskit.tls.errors import CertificateInvalid
+from opskit.tls.errors import CertificateInvalid, TlsError
 
 runner = CliRunner()
 
@@ -58,3 +58,56 @@ class TestSecureStage:
         payload = json.loads(result.output)
         assert payload["error"]["code"] == "cert_invalid"
         assert "opskit tls" in payload["error"]["hint"]
+
+
+class TestServerUrlScheme:
+    """`--server ldap(s)://host:port` must reach the real network, not just parse."""
+
+    def test_ldaps_scheme_reaches_real_tls_stage(self, tls_server):
+        """A scheme-prefixed --server still gets far enough to hit the TLS stage.
+
+        Asserts the shared TlsError family, not CertificateInvalid specifically:
+        the platform TLS stack's exact classification of a self-signed cert can
+        vary across OSes (CLAUDE.md cross-OS rule), and this test only cares that
+        the scheme was parsed and a real TLS handshake was attempted.
+        """
+        server = tls_server("self_signed")
+        with pytest.raises(TlsError):
+            api.check(server=f"ldaps://{server.host}:{server.port}", timeout=3.0)
+
+    def test_ldap_scheme_with_closed_port_is_connect_class_family(self, closed_port):
+        """A scheme-prefixed --server on a dead port still classifies as reach-stage."""
+        with pytest.raises((ConnectRefused, ConnectTimeout)):
+            api.check(server=f"ldap://127.0.0.1:{closed_port}", timeout=2.0)
+
+    def test_scheme_via_cli(self, closed_port):
+        result = runner.invoke(
+            app,
+            ["ad", "check", f"ldap://127.0.0.1:{closed_port}", "--timeout", "2"],
+        )
+        assert result.exit_code in (6, 8)  # timeout vs refused: platform-dependent
+
+
+class TestDiscoveryHintOverRealSocket:
+    """The retry hint from a discovery-picked DC, exercised over a real TLS socket."""
+
+    def test_discovered_self_signed_cert_gets_ca_file_hint(
+        self, tls_server, monkeypatch
+    ):
+        server = tls_server("self_signed")
+        monkeypatch.setattr(
+            "opskit.ad.api.discovery.discover_dcs",
+            lambda domain, timeout: [server.host],
+        )
+        with pytest.raises(TlsError) as excinfo:
+            api.check(domain="corp.example.com", port=server.port, timeout=3.0)
+        # both the original tls-check pointer and the new discovery-retry guidance
+        assert "opskit tls check" in excinfo.value.hint
+        assert "retry with --server" in excinfo.value.hint
+
+    def test_explicit_server_gets_no_discovery_hint_over_real_socket(self, tls_server):
+        """Same failing DC, but named explicitly: no discovery-retry text appended."""
+        server = tls_server("self_signed")
+        with pytest.raises(TlsError) as excinfo:
+            api.check(server=f"{server.host}:{server.port}", timeout=3.0)
+        assert "retry with --server" not in excinfo.value.hint
