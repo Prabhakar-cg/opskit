@@ -5,6 +5,14 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.8](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.7...opskit-v0.1.8) (2026-08-21)
+
+
+### Bug Fixes
+
+* **ad:** enhance error hints for TLS discovery failures and server URL parsing ([ce7c604](https://github.com/Prabhakar-cg/opskit/commit/ce7c604d1194003b47676e81bf2865074934d279))
+* **ad:** enhance error hints for TLS discovery failures and server URL parsing ([ce7c604](https://github.com/Prabhakar-cg/opskit/commit/ce7c604d1194003b47676e81bf2865074934d279))
+
 ## [0.1.7](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.6...opskit-v0.1.7) (2026-07-28)
 
 
