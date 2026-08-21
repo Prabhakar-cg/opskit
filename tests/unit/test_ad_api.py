@@ -18,6 +18,8 @@ from opskit.ad.errors import (
 )
 from opskit.ad.models import DirectoryConfig
 from opskit.core.errors import UsageError
+from opskit.tls.errors import CertificateInvalid, HandshakeError
+from opskit.tls.models import FindingCode, ValidationFinding
 
 AD_BASE = "dc=corp,dc=example,dc=com"
 
@@ -261,6 +263,79 @@ class TestCheck:
         with api.AdClient(config, session_factory=ad_session_factory) as client:
             with pytest.raises(DiscoveryError):
                 client.check()
+
+
+class TestDiscoveryFailureHints:
+    """A DC found via SRV discovery that fails TLS gets a targeted retry hint."""
+
+    def _discovery_config(self, ad_config_factory, monkeypatch, hosts=None):
+        monkeypatch.setattr(
+            "opskit.ad.api.discovery.discover_dcs",
+            lambda domain, timeout: list(hosts or ["fake-dc.corp.example.com"]),
+        )
+        return ad_config_factory(server=None, domain="corp.example.com")
+
+    def test_cert_invalid_gets_ca_file_hint(self, ad_config_factory, monkeypatch):
+        config = self._discovery_config(ad_config_factory, monkeypatch)
+        finding = ValidationFinding(code=FindingCode.EXPIRED, message="cert expired")
+
+        def failing_factory(config: DirectoryConfig, **kwargs: Any) -> Any:
+            raise CertificateInvalid("certificate is invalid", findings=(finding,))
+
+        with api.AdClient(config, session_factory=failing_factory) as client:
+            with pytest.raises(CertificateInvalid) as excinfo:
+                client.check()
+        assert "--ca-file" in excinfo.value.hint
+        # the original validation findings must survive the re-wrap, not just the message
+        assert excinfo.value.findings == (finding,)
+
+    def test_handshake_error_gets_starttls_hint(self, ad_config_factory, monkeypatch):
+        config = self._discovery_config(ad_config_factory, monkeypatch)
+
+        def failing_factory(config: DirectoryConfig, **kwargs: Any) -> Any:
+            raise HandshakeError("TLS handshake failed")
+
+        with api.AdClient(config, session_factory=failing_factory) as client:
+            with pytest.raises(HandshakeError) as excinfo:
+                client.check()
+        assert "--starttls" in excinfo.value.hint
+
+    def test_original_hint_is_preserved_alongside_new_guidance(
+        self, ad_config_factory, monkeypatch
+    ):
+        config = self._discovery_config(ad_config_factory, monkeypatch)
+
+        def failing_factory(config: DirectoryConfig, **kwargs: Any) -> Any:
+            raise HandshakeError("TLS handshake failed", hint="original hint")
+
+        with api.AdClient(config, session_factory=failing_factory) as client:
+            with pytest.raises(HandshakeError) as excinfo:
+                client.check()
+        assert excinfo.value.hint.startswith("original hint; ")
+
+    def test_explicit_server_gets_no_discovery_hint(self, ad_config_factory):
+        """An explicit --server is never rotated/hinted (R4): the raw TLS error passes through."""
+        config = ad_config_factory(server="fake-dc.corp.example.com")
+
+        def failing_factory(config: DirectoryConfig, **kwargs: Any) -> Any:
+            raise HandshakeError("TLS handshake failed")
+
+        with api.AdClient(config, session_factory=failing_factory) as client:
+            with pytest.raises(HandshakeError) as excinfo:
+                client.check()
+        assert excinfo.value.hint is None
+
+    def test_non_tls_error_is_not_wrapped(self, ad_config_factory, monkeypatch):
+        """A discovery-flow failure unrelated to TLS/cert propagates unchanged."""
+        config = self._discovery_config(ad_config_factory, monkeypatch)
+
+        def failing_factory(config: DirectoryConfig, **kwargs: Any) -> Any:
+            raise AuthenticationFailed("bad credentials")
+
+        with api.AdClient(config, session_factory=failing_factory) as client:
+            with pytest.raises(AuthenticationFailed) as excinfo:
+                client.check()
+        assert excinfo.value.hint is None
 
 
 class TestLibraryContract:

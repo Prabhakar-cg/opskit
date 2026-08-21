@@ -79,6 +79,17 @@ def parse_server(raw: str) -> tuple[str, int | None]:
     text = raw.strip()
     if not text:
         raise UsageError("a server host is required")
+    lowered = text.lower()
+    if lowered.startswith("ldap://") or lowered.startswith("ldaps://"):
+        text = text.split("://", 1)[1].strip()
+        if "/" in text:
+            host_part, _, suffix = text.partition("/")
+            if suffix and suffix != "":  # allow empty suffix (e.g., ldap://host/)
+                raise UsageError(
+                    f"invalid server (unexpected path): {raw}",
+                    hint="pass only the host or host:port, not a URL",
+                )
+            text = host_part
     host, port = split_host_port(text, raw)
     host = normalize_host(host)
     if not host:
