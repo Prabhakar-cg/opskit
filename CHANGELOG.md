@@ -5,6 +5,13 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.9](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.8...opskit-v0.1.9) (2026-08-22)
+
+
+### Features
+
+* **ad:** group-redirect errors, ad members command, UPN/mail matching, sharper TLS hints ([#50](https://github.com/Prabhakar-cg/opskit/issues/50)) ([1e1651f](https://github.com/Prabhakar-cg/opskit/commit/1e1651ff1db7bdfcc507c9880527136b88c92cad))
+
 ## [0.1.8](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.7...opskit-v0.1.8) (2026-08-21)
 
 
