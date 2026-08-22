@@ -20,6 +20,20 @@ from opskit.net.errors import BindPermissionDenied, PortInUse
 from opskit.net.listener import Listener
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_terminal_env(monkeypatch):
+    """Rendering/CLI tests must be deterministic regardless of the host shell.
+
+    ``FORCE_COLOR``/``CLICOLOR_FORCE`` make rich treat any output stream — including a
+    captured ``StringIO`` or a CliRunner-piped stream — as a terminal, which re-enables
+    ANSI styling (e.g. explicit ``[bold]`` markup) that would otherwise never render to a
+    non-tty stream. Clearing them keeps `--no-color`/plain-text assertions stable in any
+    dev environment.
+    """
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
+
+
 class MockResolver:
     """A resolver stub: preset records per type, a global error, or per-type errors."""
 
@@ -272,6 +286,16 @@ def default_ad_entries() -> dict[str, dict]:
             "cn": "ambig2",
             "sAMAccountName": "ambig",
         },
+        # 008-ad-enhancements US3: UPN/mail matching fixtures.
+        f"cn=dmailonly,{staff}": user(
+            "dmailonly", expiry=future, extra={"mail": "jane.doe@example.com"}
+        ),
+        f"cn=dupnshared,{staff}": user("dupnshared", expiry=future),
+        f"cn=dmailshared,{staff}": user(
+            "dmailshared",
+            expiry=future,
+            extra={"mail": "dupnshared@corp.example.com"},
+        ),
         f"cn=wks-042$,ou=Machines,{AD_BASE}": {
             "objectClass": ["top", "person", "user", "computer"],
             "cn": "wks-042$",

@@ -1279,7 +1279,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "charset-normalizer", specifier = ">=3,<4" },
-    { name = "cryptography", specifier = ">=48.0.1,<51" },
+    { name = "cryptography", specifier = ">=50,<51" },
     { name = "defusedxml", specifier = ">=0.7,<1" },
     { name = "dnslib", marker = "extra == 'dev'", specifier = ">=0.9" },
     { name = "dnspython", specifier = ">=2.6,<3" },

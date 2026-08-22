@@ -26,8 +26,10 @@ AD_BIND_DN = f"cn=ops,cn=Users,{AD_BASE}"
 class TestClassifyConnectError:
     """Every raw exception family normalizes into the shared hierarchy (Art. VI)."""
 
-    def _classify(self, exc: BaseException) -> OpskitError:
-        return directory.classify_connect_error(exc, host="dc01", port=636)
+    def _classify(self, exc: BaseException, *, security: str = "ldaps") -> OpskitError:
+        return directory.classify_connect_error(
+            exc, host="dc01", port=636, security=security
+        )
 
     def test_connection_refused_instance(self):
         error = self._classify(ConnectionRefusedError(111, "refused"))
@@ -50,6 +52,46 @@ class TestClassifyConnectError:
         assert isinstance(error, CertificateInvalid)
         assert error.hint is not None
         assert "opskit tls check" in error.hint
+
+    def test_cert_verification_hint_always_mentions_wsl(self):
+        """008-ad-enhancements US4 (FR-012): unconditional, regardless of security mode."""
+        for security in ("ldaps", "starttls", "plaintext"):
+            error = self._classify(
+                ssl.SSLCertVerificationError("certificate verify failed"),
+                security=security,
+            )
+            assert isinstance(error, CertificateInvalid)
+            assert error.hint is not None
+            assert "WSL" in error.hint
+
+    def test_cert_verification_hint_mentions_starttls_only_when_used(self):
+        """008-ad-enhancements US4 (FR-011): scoped to the mode actually in use."""
+        starttls_error = self._classify(
+            ssl.SSLCertVerificationError("certificate verify failed"),
+            security="starttls",
+        )
+        assert starttls_error.hint is not None
+        assert (
+            "--starttls does not skip certificate verification" in starttls_error.hint
+        )
+
+        ldaps_error = self._classify(
+            ssl.SSLCertVerificationError("certificate verify failed"),
+            security="ldaps",
+        )
+        assert ldaps_error.hint is not None
+        assert "--starttls" not in ldaps_error.hint
+
+    def test_cert_verification_hint_via_text_fallback_also_updated(self):
+        """The string-fallback classification branch gets the same hint helper."""
+        error = self._classify(
+            RuntimeError("certificate verify failed: self signed"),
+            security="starttls",
+        )
+        assert isinstance(error, CertificateInvalid)
+        assert error.hint is not None
+        assert "WSL" in error.hint
+        assert "--starttls does not skip certificate verification" in error.hint
 
     def test_ssl_generic_is_handshake(self):
         assert isinstance(self._classify(ssl.SSLError("bad handshake")), HandshakeError)

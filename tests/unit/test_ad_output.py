@@ -31,7 +31,9 @@ _NOW = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
 
 def _console() -> tuple[Console, io.StringIO]:
     buffer = io.StringIO()
-    return Console(file=buffer, no_color=True, width=200), buffer
+    return Console(
+        file=buffer, no_color=True, width=200, highlight=False, force_terminal=False
+    ), buffer
 
 
 def _status(**overrides: Any) -> AccountStatusReport:

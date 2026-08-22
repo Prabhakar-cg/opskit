@@ -2,10 +2,11 @@
 
 Read-only directory troubleshooting, identical on Windows/macOS/Linux — the answers
 `Get-ADUser`, `net user /domain`, and hand-written `ldapsearch` filters give, without
-needing any of them installed. Five commands: `check` (staged connectivity/bind
-verdict), `user` (why can't this account sign in?), `groups` (direct/effective
-membership), `member` (is P in G?), and `show` (key attributes of users, groups,
-computers — bidirectional: a user's email and facts, a group's member list).
+needing any of them installed. Six commands: `check` (staged connectivity/bind
+verdict), `user` (why can't this account sign in?), `groups` (a principal's
+direct/effective membership), `member` (is P in G?), `members` (a group's
+direct/effective member list, the reverse of `groups`), and `show` (key attributes of
+users, groups, computers).
 
 Strictly diagnostic by design: only bind and search operations are ever sent — **no
 writes, no unlocks, no password testing, no wildcard/filter enumeration**. Every query
@@ -25,6 +26,7 @@ pip install "opskit[ad]"      # pulls ldap3 (the base install stays slim)
 - [`opskit ad user`](#opskit-ad-user)
 - [`opskit ad groups`](#opskit-ad-groups)
 - [`opskit ad member`](#opskit-ad-member)
+- [`opskit ad members`](#opskit-ad-members)
 - [`opskit ad show`](#opskit-ad-show)
 - [Exit codes](#exit-codes)
 - [Output](#output)
@@ -65,6 +67,35 @@ the platform trust store. Note for `--domain` discovery: SRV records advertise p
 389, so opskit uses the discovered *hostnames* with the security mode's port (636 for
 LDAPS) — pass `--server host:port` to override. Certificate problems point you at
 `opskit tls check` for deep inspection.
+
+### Trusting a corporate CA
+
+If your directory server's certificate is issued by an internal/corporate certificate
+authority, it won't be in the public trust store opskit verifies against by default —
+every command will fail with a certificate verification error until you point opskit at
+that CA explicitly. Two things commonly cause confusion here, so they're worth stating
+plainly:
+
+- **`--starttls` does not skip certificate verification.** Switching from LDAPS to
+  `--starttls` changes *when* the TLS handshake happens (after a plaintext connect,
+  before the bind), not *whether* the certificate is checked — an untrusted certificate
+  still fails the same way under either mode.
+- **WSL does not inherit the Windows certificate trust store.** If you've already
+  installed your corporate root CA into Windows' trust store, a `opskit ad` command run
+  from inside WSL still can't see it — WSL is a separate Linux environment with its own
+  trust store.
+
+To fix it, get your corporate root CA certificate as a PEM file (ask your PKI/security
+team, or export it from the Windows certificate store as Base-64 X.509 and rename the
+`.cer` to `.pem`), then pass it explicitly:
+
+```bash
+opskit ad check dc01.corp.example.com --ca-file corp-root.pem
+```
+
+`--ca-file` **replaces** the platform trust store for that connection (it doesn't add to
+it), so pass the full chain if your directory's certificate isn't issued directly by the
+root.
 
 ## `opskit ad check`
 
@@ -122,6 +153,25 @@ opskit ad member jdoe "Domain Admins"       # exit 17: not a member
 
 Scriptable by exit code: `0` member, `17` not a member, other codes = the query
 itself failed.
+
+If the principal argument actually names a group (not a user/computer account), `member`
+and `groups` report that directly instead of a bare not-found, and point you at `members`
+below.
+
+## `opskit ad members`
+
+The reverse of `groups`: a group's members. **Effective (nested) by default** — unlike
+`groups`, which defaults to direct-only — because the useful default answer to "who's in
+this group" already includes members gained through nested groups; pass `--direct` for
+direct members only. Cycle-safe, each member reported once, with the acquisition path for
+anything reached only through nesting. Batchable, like `user`/`show`.
+
+```bash
+opskit ad members "VPN Users"
+opskit ad members "VPN Users" --direct
+opskit ad members "VPN Users" "Domain Admins" --jsonl   # batch, one session
+printf 'VPN Users\nDomain Admins\n' | opskit ad members -i - --jsonl
+```
 
 ## `opskit ad show`
 

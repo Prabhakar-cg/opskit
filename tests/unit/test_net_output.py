@@ -29,7 +29,9 @@ from opskit.net.output import (
 
 def _console() -> tuple[Console, io.StringIO]:
     buffer = io.StringIO()
-    return Console(file=buffer, no_color=True, width=200), buffer
+    return Console(
+        file=buffer, no_color=True, width=200, highlight=False, force_terminal=False
+    ), buffer
 
 
 def _result(host="db.example.com", protocol=Protocol.TCP, address="192.0.2.7"):

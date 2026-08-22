@@ -112,14 +112,36 @@ def _walk_causes(exc: BaseException) -> list[BaseException]:
     return seen
 
 
+def _certificate_hint(target: str, *, security: str) -> str:
+    """Build the CertificateInvalid hint (008-ad-enhancements US4).
+
+    Always notes that WSL doesn't inherit the Windows certificate trust store
+    (FR-012); additionally notes that ``--starttls`` doesn't bypass certificate
+    verification when that's the mode that was actually in use (FR-011, scoped so an
+    LDAPS user isn't told something irrelevant to the flag they didn't pass).
+    """
+    starttls_note = (
+        " --starttls does not skip certificate verification, either;"
+        if security == "starttls"
+        else ""
+    )
+    return (
+        f"inspect it with: opskit tls check {target};{starttls_note} for a private CA "
+        "pass --ca-file (running under WSL? it does not inherit the Windows "
+        "certificate trust store)"
+    )
+
+
 def classify_connect_error(  # noqa: PLR0911 - one return per documented outcome class
-    exc: BaseException, *, host: str, port: int
+    exc: BaseException, *, host: str, port: int, security: str = "ldaps"
 ) -> OpskitError:
     """Normalize a connect/TLS-stage exception into the shared typed hierarchy.
 
     Inspects the exception chain first (exact stdlib types), then falls back to
     message markers (ldap3 frequently stringifies the original error). A raw
-    ldap3/socket/ssl exception never escapes this module (Art. VI).
+    ldap3/socket/ssl exception never escapes this module (Art. VI). ``security`` (the
+    connection mode in use — ``"ldaps"``, ``"starttls"``, or ``"plaintext"``) only
+    affects the wording of a certificate-verification failure's hint.
     """
     target = f"{host}:{port}"
     for cause in _walk_causes(exc):
@@ -128,10 +150,7 @@ def classify_connect_error(  # noqa: PLR0911 - one return per documented outcome
                 f"certificate verification failed for {target}: {cause.verify_message}"
                 if getattr(cause, "verify_message", None)
                 else f"certificate verification failed for {target}",
-                hint=(
-                    f"inspect it with: opskit tls check {target}; "
-                    "for a private CA pass --ca-file"
-                ),
+                hint=_certificate_hint(target, security=security),
             )
         if isinstance(cause, ssl.SSLError):
             return HandshakeError(
@@ -159,8 +178,7 @@ def classify_connect_error(  # noqa: PLR0911 - one return per documented outcome
     if "certificate" in text:
         return CertificateInvalid(
             f"certificate verification failed for {target}",
-            hint=f"inspect it with: opskit tls check {target}; "
-            "for a private CA pass --ca-file",
+            hint=_certificate_hint(target, security=security),
         )
     if any(marker in text for marker in ("ssl", "tls", "handshake", "wrap socket")):
         return HandshakeError(
@@ -308,7 +326,7 @@ class DirectorySession:
                 )
             except ldap3_exceptions.LDAPException as exc:
                 raise classify_connect_error(
-                    exc, host=self.host, port=self.port
+                    exc, host=self.host, port=self.port, security=self.config.security
                 ) from exc
             result: dict[str, Any] = dict(self._conn.result or {})
             code = int(result.get("result", _RESULT_SUCCESS))
@@ -426,7 +444,9 @@ def connect_session(
     try:
         conn.open()
     except Exception as exc:
-        raise classify_connect_error(exc, host=host, port=port) from exc
+        raise classify_connect_error(
+            exc, host=host, port=port, security=config.security
+        ) from exc
     if stages is not None:
         stages.append(Stage(open_stage, True, (time.perf_counter() - start) * 1000.0))
 
@@ -438,7 +458,9 @@ def connect_session(
             try:
                 upgraded = bool(conn.start_tls())
             except Exception as exc:
-                raise classify_connect_error(exc, host=host, port=port) from exc
+                raise classify_connect_error(
+                    exc, host=host, port=port, security=config.security
+                ) from exc
             if not upgraded:
                 raise HandshakeError(
                     f"StartTLS upgrade failed with {host}:{port}",
@@ -456,7 +478,9 @@ def connect_session(
         except OpskitError:
             raise
         except Exception as exc:
-            raise classify_connect_error(exc, host=host, port=port) from exc
+            raise classify_connect_error(
+                exc, host=host, port=port, security=config.security
+            ) from exc
         if stages is not None:
             stages.append(
                 Stage("authenticated", True, (time.perf_counter() - start) * 1000.0)

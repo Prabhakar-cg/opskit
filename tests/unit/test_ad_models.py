@@ -9,12 +9,52 @@ from hypothesis import strategies as st
 from opskit.ad.errors import CleartextRefused
 from opskit.ad.models import (
     DirectoryConfig,
+    GroupMemberEntry,
+    GroupMembersReport,
     IdentifierKind,
     classify_identifier,
     escape_filter_value,
     parse_server,
 )
 from opskit.core.errors import UsageError
+
+
+class TestGroupMembersModel:
+    """008-ad-enhancements US2: to_dict() shapes for the new member-direction models."""
+
+    def test_group_member_entry_to_dict(self):
+        entry = GroupMemberEntry(
+            name="J Doe",
+            dn="cn=J Doe,ou=Staff,dc=corp,dc=example,dc=com",
+            object_type="user",
+            via="nested",
+            path=("VPN Users",),
+        )
+        assert entry.to_dict() == {
+            "name": "J Doe",
+            "dn": "cn=J Doe,ou=Staff,dc=corp,dc=example,dc=com",
+            "object_type": "user",
+            "via": "nested",
+            "path": ["VPN Users"],
+        }
+
+    def test_group_members_report_to_dict(self):
+        entry = GroupMemberEntry(
+            name="VPN Users",
+            dn="cn=VPN Users,ou=Groups,dc=corp,dc=example,dc=com",
+            object_type="group",
+            via="direct",
+        )
+        report = GroupMembersReport(
+            group="Remote Access",
+            dn="cn=Remote Access,ou=Groups,dc=corp,dc=example,dc=com",
+            effective=True,
+            members=(entry,),
+        )
+        payload = report.to_dict()
+        assert payload["group"] == "Remote Access"
+        assert payload["effective"] is True
+        assert payload["members"] == [entry.to_dict()]
 
 
 class TestDirectoryConfig:

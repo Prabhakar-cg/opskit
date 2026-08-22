@@ -24,7 +24,9 @@ from opskit.storage.output import (
 
 def _console():
     buf = io.StringIO()
-    return Console(file=buf, no_color=True, width=200), buf
+    return Console(
+        file=buf, no_color=True, width=200, highlight=False, force_terminal=False
+    ), buf
 
 
 def _volume(mountpoint="/", fstype="ext4", is_network=False):

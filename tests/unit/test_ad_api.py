@@ -14,6 +14,8 @@ from opskit.ad.errors import (
     AmbiguousPrincipal,
     AuthenticationFailed,
     DiscoveryError,
+    PermissionDenied,
+    PrincipalIsGroup,
     PrincipalNotFound,
 )
 from opskit.ad.models import DirectoryConfig
@@ -100,6 +102,35 @@ class TestUserStatus:
             ad_client.user_status("no-such-user")
         assert excinfo.value.hint is not None
 
+    def test_group_identifier_redirects_instead_of_not_found(self, ad_client):
+        """008-ad-enhancements US1: a group name gets a redirect, not bare not-found."""
+        with pytest.raises(PrincipalIsGroup) as excinfo:
+            ad_client.user_status("VPN Users")
+        assert "VPN Users" in excinfo.value.message
+        assert excinfo.value.hint is not None
+        assert "ad members" in excinfo.value.hint
+        assert "ad member" in excinfo.value.hint
+
+    def test_truly_unknown_identifier_stays_generic_not_found(self, ad_client):
+        """Regression: FR-002 — no group match either -> unchanged PrincipalNotFound."""
+        with pytest.raises(PrincipalNotFound) as excinfo:
+            ad_client.user_status("not-a-user-or-a-group")
+        assert not isinstance(excinfo.value, PrincipalIsGroup)
+
+    def test_group_dn_redirects_instead_of_not_found(self, ad_client):
+        """A DN identifier is exact, but the redirect must still apply (code review)."""
+        with pytest.raises(PrincipalIsGroup) as excinfo:
+            ad_client.user_status(f"cn=VPN Users,ou=Groups,{AD_BASE}")
+        assert "VPN Users" in excinfo.value.message
+
+    def test_dn_and_search_redirect_hints_cannot_drift(self, ad_client):
+        """The DN-form and search-form redirects share one message/hint (code review)."""
+        with pytest.raises(PrincipalIsGroup) as by_name:
+            ad_client.user_status("VPN Users")
+        with pytest.raises(PrincipalIsGroup) as by_dn:
+            ad_client.user_status(f"cn=VPN Users,ou=Groups,{AD_BASE}")
+        assert by_name.value.hint == by_dn.value.hint
+
     def test_ambiguous_principal_lists_candidates(self, ad_client):
         with pytest.raises(AmbiguousPrincipal) as excinfo:
             ad_client.user_status("ambig")
@@ -109,6 +140,23 @@ class TestUserStatus:
     def test_computer_account_is_a_valid_principal(self, ad_client):
         report = ad_client.user_status("wks-042$")
         assert report.dn.startswith("cn=wks-042$")
+
+    def test_mail_only_identifier_resolves(self, ad_client):
+        """008-ad-enhancements US3 (FR-008): mail differs from userPrincipalName."""
+        report = ad_client.user_status("jane.doe@example.com")
+        assert report.sam_account_name == "dmailonly"
+
+    def test_upn_and_mail_ambiguity_across_two_accounts(self, ad_client):
+        """FR-009: one account's UPN equals another's mail -> still ambiguous."""
+        with pytest.raises(AmbiguousPrincipal) as excinfo:
+            ad_client.user_status("dupnshared@corp.example.com")
+        assert "dupnshared" in excinfo.value.message
+        assert "dmailshared" in excinfo.value.message
+
+    def test_matching_both_attributes_on_one_entry_is_not_ambiguous(self, ad_client):
+        """FR-010: jdoe's mail and userPrincipalName are already identical in the fixture."""
+        report = ad_client.user_status("jdoe@corp.example.com")
+        assert report.sam_account_name == "jdoe"
 
     def test_session_is_reused(self, ad_config, ad_session_factory):
         calls: list[str] = []
@@ -156,6 +204,12 @@ class TestMembership:
         report = ad_client.membership("ddisabled")
         assert report.groups == ()
 
+    def test_group_identifier_redirects_instead_of_not_found(self, ad_client):
+        """008-ad-enhancements US1: same redirect applies to ad groups' lookup."""
+        with pytest.raises(PrincipalIsGroup) as excinfo:
+            ad_client.membership("VPN Users")
+        assert "VPN Users" in excinfo.value.message
+
 
 class TestIsMember:
     def test_direct_member(self, ad_client):
@@ -183,6 +237,189 @@ class TestIsMember:
     def test_unknown_group(self, ad_client):
         with pytest.raises(PrincipalNotFound, match="group"):
             ad_client.is_member("jdoe", "No Such Group")
+
+    def test_group_as_principal_redirects_instead_of_not_found(self, ad_client):
+        """008-ad-enhancements US1: the principal argument gets the redirect too."""
+        with pytest.raises(PrincipalIsGroup) as excinfo:
+            ad_client.is_member("VPN Users", "VPN Users")
+        assert "VPN Users" in excinfo.value.message
+
+
+class TestMembers:
+    """008-ad-enhancements US2: opskit.ad.AdClient.members() (the reverse of membership())."""
+
+    def test_default_is_effective_nested(self, ad_client):
+        report = ad_client.members("Remote Access")
+        assert report.effective is True
+        by_name = {entry.name: entry for entry in report.members}
+        assert by_name["VPN Users"].via == "direct"
+        assert by_name["VPN Users"].object_type == "group"
+        assert by_name["J Doe"].via == "nested"
+        assert by_name["J Doe"].path == ("VPN Users",)
+        assert by_name["J Doe"].object_type == "user"
+
+    def test_direct_only_excludes_nested(self, ad_client):
+        report = ad_client.members("Remote Access", effective=False)
+        assert report.effective is False
+        names = {entry.name for entry in report.members}
+        assert names == {"VPN Users"}
+
+    def test_direct_only_skips_classification(self, ad_client):
+        """--direct's fast path reports object_type="unknown" (no per-member read)."""
+        report = ad_client.members("Remote Access", effective=False)
+        entry = next(iter(report.members))
+        assert entry.object_type == "unknown"
+        assert report.to_dict()["members"][0]["object_type"] == "unknown"
+
+    def test_cycle_terminates_and_reports_each_member_once(self, ad_client):
+        report = ad_client.members("Cycle A")
+        dns = [entry.dn.lower() for entry in report.members]
+        assert len(dns) == len(set(dns))
+        by_name = {entry.name: entry for entry in report.members}
+        assert by_name["Staff All"].via == "direct"
+        assert by_name["Cycle B"].via == "direct"
+        assert by_name["J Doe"].via == "nested"
+        assert by_name["J Doe"].path == ("Staff All",)
+        # Cycle A must not reappear as one of its own (in)direct members.
+        assert "Cycle A" not in by_name
+
+    def test_empty_group_is_success(self, ad_client):
+        report = ad_client.members("Domain Users")
+        assert report.members == ()
+
+    def test_unknown_group(self, ad_client):
+        with pytest.raises(PrincipalNotFound, match="group"):
+            ad_client.members("No Such Group")
+
+    def test_ambiguous_or_principal_only_identifier(self, ad_client):
+        """A group-scoped lookup for a pure user/computer identifier stays not-found."""
+        with pytest.raises(PrincipalNotFound):
+            ad_client.members("jdoe")
+
+    def test_user_dn_is_not_found_not_silently_empty(self, ad_client):
+        """A user's DN passed to a group-scoped lookup must not resolve (code review)."""
+        with pytest.raises(PrincipalNotFound):
+            ad_client.members(f"cn=J Doe,ou=Staff,{AD_BASE}")
+
+
+class TestMembersPermissionResilience:
+    """A permission failure on one branch degrades that branch, never aborts (code review)."""
+
+    def _deny_read(
+        self, monkeypatch, *, dn: str, only_attributes: list[str] | None = None
+    ):
+        """Make DirectorySession.read_entry raise PermissionDenied for one DN."""
+        original_read_entry = DirectorySession.read_entry
+        target = dn.lower()
+
+        def patched(self, target_dn, *, attributes):
+            if target_dn.lower() == target and (
+                only_attributes is None or attributes == only_attributes
+            ):
+                raise PermissionDenied(
+                    "the bound account is not authorized to read this"
+                )
+            return original_read_entry(self, target_dn, attributes=attributes)
+
+        monkeypatch.setattr(DirectorySession, "read_entry", patched)
+
+    def test_unreadable_member_degrades_to_unknown_not_abort(
+        self, ad_client, monkeypatch
+    ):
+        """One member the bind account can't read must not abort the whole query."""
+        self._deny_read(
+            monkeypatch,
+            dn=f"cn=J Doe,ou=Staff,{AD_BASE}",
+            only_attributes=["objectClass"],
+        )
+        report = ad_client.members("Remote Access")  # effective=True by default
+        by_name = {entry.name: entry for entry in report.members}
+        assert by_name["VPN Users"].object_type == "group"
+        assert by_name["J Doe"].via == "nested"
+        assert by_name["J Doe"].object_type == "unknown"  # degraded, not raised
+
+    def test_unreadable_nested_group_skips_branch_not_abort(
+        self, ad_client, monkeypatch
+    ):
+        """A permission failure expanding a nested group must not abort other branches."""
+        self._deny_read(
+            monkeypatch,
+            dn=f"cn=VPN Users,ou=Groups,{AD_BASE}",
+            only_attributes=["member"],
+        )
+        report = ad_client.members("Remote Access")
+        names = {entry.name for entry in report.members}
+        assert "VPN Users" in names  # direct membership still reported
+        assert "J Doe" not in names  # nested branch silently skipped, not raised
+
+    def test_group_redirect_probe_permission_denied_falls_through_to_not_found(
+        self, ad_client, monkeypatch
+    ):
+        """If the redirect probe itself can't search, don't mask not-found with it.
+
+        The primary (user/computer) search for a genuinely-unknown name still
+        succeeds empty; only the follow-up "is this actually a group?" probe is
+        denied — that must not surface as PermissionDenied instead of the plain
+        PrincipalNotFound a truly-unknown name deserves.
+        """
+        original_search = DirectorySession.search
+
+        def deny_group_search(self, *, base, ldap_filter, attributes, scope="subtree"):
+            if "objectClass=group" in ldap_filter:
+                raise PermissionDenied(
+                    "the bound account is not authorized to read this"
+                )
+            return original_search(
+                self,
+                base=base,
+                ldap_filter=ldap_filter,
+                attributes=attributes,
+                scope=scope,
+            )
+
+        monkeypatch.setattr(DirectorySession, "search", deny_group_search)
+        with pytest.raises(PrincipalNotFound):
+            ad_client.user_status("no-such-user-at-all")
+
+
+class TestKindFilterParity:
+    """_CLASS_FILTERS (search path) and _matches_kind_filter (DN path) must agree.
+
+    Regression guard (code review): the two are independent encodings of the same
+    object-class scoping, so a kind_filter added to one without the other would
+    silently misclassify every DN-form lookup of that kind.
+    """
+
+    @pytest.mark.parametrize(
+        "identifier,expected_type",
+        [("jdoe", "user"), ("wks-042$", "computer"), ("VPN Users", "group")],
+    )
+    def test_search_and_dn_path_scoping_agree(
+        self, ad_client, identifier, expected_type
+    ):
+        session = ad_client._ensure()
+        entry = api._find_one(
+            session,
+            identifier,
+            kind_filter="any",
+            attributes=["objectClass"],
+            label="object",
+        )
+        assert api._object_type_of(entry) == expected_type
+        id_kind, value = api.classify_identifier(identifier)
+        clause = api._identifier_clause(id_kind, value)
+        for kind_filter, ldap_clause in api._CLASS_FILTERS.items():
+            found = session.search(
+                base=session.default_base(),
+                ldap_filter=f"(&{ldap_clause}{clause})",
+                attributes=["objectClass"],
+            )
+            search_matches = len(found) == 1
+            dn_matches = api._matches_kind_filter(entry, kind_filter)
+            assert search_matches == dn_matches, (
+                f"kind_filter={kind_filter!r} disagrees for {expected_type} "
+                f"{identifier!r}: search-path={search_matches} dn-path={dn_matches}"
+            )
 
 
 class TestShow:
