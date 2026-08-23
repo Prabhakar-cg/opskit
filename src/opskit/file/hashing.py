@@ -5,7 +5,6 @@ See specs/007-file-operations/research.md R6.
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import os
 from collections import defaultdict
@@ -33,8 +32,8 @@ class _Hasher(Protocol):
 # (and scanners) don't flag them as weak crypto (Sonar python:S4790).
 _ALGORITHMS: dict[str, Callable[[], _Hasher]] = {
     "sha256": hashlib.sha256,
-    "sha1": functools.partial(hashlib.sha1, usedforsecurity=False),
-    "md5": functools.partial(hashlib.md5, usedforsecurity=False),
+    "sha1": lambda: hashlib.sha1(usedforsecurity=False),
+    "md5": lambda: hashlib.md5(usedforsecurity=False),
 }
 
 _MIN_GROUP_SIZE = 2
