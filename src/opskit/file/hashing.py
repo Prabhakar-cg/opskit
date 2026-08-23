@@ -9,6 +9,7 @@ import hashlib
 import os
 from collections import defaultdict
 from pathlib import Path
+from typing import Callable, Protocol
 
 from opskit.core.errors import UsageError
 from opskit.file import formats
@@ -17,10 +18,22 @@ from opskit.file.models import DuplicateGroup
 
 _CHUNK_SIZE = 1024 * 1024
 
-_ALGORITHMS = {
+
+class _Hasher(Protocol):
+    """Structural shape of a ``hashlib`` digest object (the subset we use)."""
+
+    def update(self, data: bytes, /) -> None: ...
+
+    def hexdigest(self) -> str: ...
+
+
+# sha1/md5 are offered only as file-identity checksums (dedup/verification), never for
+# password or signature security — usedforsecurity=False records that intent so hashlib
+# (and scanners) don't flag them as weak crypto (Sonar python:S4790).
+_ALGORITHMS: dict[str, Callable[[], _Hasher]] = {
     "sha256": hashlib.sha256,
-    "sha1": hashlib.sha1,
-    "md5": hashlib.md5,
+    "sha1": lambda: hashlib.sha1(usedforsecurity=False),
+    "md5": lambda: hashlib.md5(usedforsecurity=False),
 }
 
 _MIN_GROUP_SIZE = 2
