@@ -5,6 +5,13 @@ All notable changes to opskit are documented in this file. The format is based o
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Releases and this changelog are
 generated automatically by release-please from Conventional Commits.
 
+## [0.1.10](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.9...opskit-v0.1.10) (2026-08-23)
+
+
+### Bug Fixes
+
+* **security:** resolve SonarCloud vulnerability findings ([#57](https://github.com/Prabhakar-cg/opskit/issues/57)) ([cc1a551](https://github.com/Prabhakar-cg/opskit/commit/cc1a55150d89c2a60511f7ee2eb509a535beb5ef))
+
 ## [0.1.9](https://github.com/Prabhakar-cg/opskit/compare/opskit-v0.1.8...opskit-v0.1.9) (2026-08-22)
 
 
