@@ -25,14 +25,14 @@ jobs:
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
-      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Notice when unconfigured
         if: ${{ env.SNYK_TOKEN == '' }}
         run: echo "SNYK_TOKEN is not set — skipping Snyk. Add the repo secret to enable."
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         if: ${{ env.SNYK_TOKEN != '' }}
       - name: Install Snyk CLI
         if: ${{ env.SNYK_TOKEN != '' }}
@@ -55,13 +55,13 @@ jobs:
         run: snyk code test --severity-threshold=high --sarif-file-output=snyk-code.sarif
       - name: Upload Open Source SARIF
         if: ${{ env.SNYK_TOKEN != '' && hashFiles('snyk-oss.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: snyk-oss.sarif
           category: snyk-oss
       - name: Upload Snyk Code SARIF
         if: ${{ env.SNYK_TOKEN != '' && hashFiles('snyk-code.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: snyk-code.sarif
           category: snyk-code
