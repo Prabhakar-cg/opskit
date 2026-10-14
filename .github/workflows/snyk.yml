@@ -25,18 +25,18 @@ jobs:
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
-      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2
+      - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Notice when unconfigured
         if: ${{ env.SNYK_TOKEN == '' }}
         run: echo "SNYK_TOKEN is not set — skipping Snyk. Add the repo secret to enable."
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         if: ${{ env.SNYK_TOKEN != '' }}
       - name: Install Snyk CLI
         if: ${{ env.SNYK_TOKEN != '' }}
-        uses: snyk/actions/setup@12140f4059e244892ae643824a95459a102120dd # master
+        uses: snyk/actions/setup@11b673cfb4b0dc0d860a1323caa199d54950dcce # master
       - name: Snyk Open Source (dependencies)
         if: ${{ env.SNYK_TOKEN != '' }}
         continue-on-error: true   # non-blocking for now
@@ -55,13 +55,13 @@ jobs:
         run: snyk code test --severity-threshold=high --sarif-file-output=snyk-code.sarif
       - name: Upload Open Source SARIF
         if: ${{ env.SNYK_TOKEN != '' && hashFiles('snyk-oss.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           sarif_file: snyk-oss.sarif
           category: snyk-oss
       - name: Upload Snyk Code SARIF
         if: ${{ env.SNYK_TOKEN != '' && hashFiles('snyk-code.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           sarif_file: snyk-code.sarif
           category: snyk-code
