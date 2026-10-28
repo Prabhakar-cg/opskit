@@ -34,7 +34,7 @@ jobs:
       # Mint a short-lived GitHub App token so release-please's PR/commits trigger CI (events
       # from the default GITHUB_TOKEN don't). Skipped until the App is configured, in which case
       # release-please falls back to GITHUB_TOKEN (current behavior — CI won't run on its PR).
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
         if: ${{ vars.RELEASE_APP_ID != '' }}
         with:
@@ -59,17 +59,17 @@ jobs:
     permissions:
       id-token: write          # OIDC for PyPI Trusted Publishing
     steps:
-      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2
+      - uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - run: uv sync --extra dev
       - name: Final security re-scan (zero-day gate)
         run: uv run pip-audit
       - name: Build
         run: uv build
       - name: Publish to PyPI (Trusted Publishing)
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         with:
           attestations: true
